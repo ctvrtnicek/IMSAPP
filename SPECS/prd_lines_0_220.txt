@@ -1,0 +1,220 @@
+0: 
+1: INVENTORY MANAGEMENT SYSTEM
+2: (Terminal Tracking Application)
+3: Product Requirements Document
+4: 
+5: Version
+6: 1.2 — Draft (R2 scope + R1 patches)
+7: Date
+8: May 2026
+9: Author
+10: Jakub Ctvrtnicek
+11: Customer
+12: Terminal Distributor
+13: Classification
+14: Confidential
+15: Previous Version
+16: v1.1 (R1 baseline)
+17: Status
+18: R1 complete · R2 in planning
+19: 
+20: 
+21: Table of Contents
+22: 
+23: 
+24: 
+25: 
+26: 1. Version History
+27: 
+28: Version
+29: Date
+30: Author
+31: Summary of Changes
+32: 1.0
+33: May 2026
+34: Jakub Ctvrtnicek
+35: Initial PRD draft — R1 scope defined
+36: 1.1
+37: May 2026
+38: Jakub Ctvrtnicek
+39: R1 review: added Supplier role, Business Objects section, Application Views, Transit Time Master, Assembly Time, Exchange Rate, Order Numbering, state history 1:N clarification, return/repair flow updates, mass upload expansion
+40: 1.2
+41: May 2026
+42: Jakub Ctvrtnicek
+43: R1 complete. R1 patch items identified post-build. R2 scope expanded with inventory enhancements, cost calculation engine, and cost KPI dashboards. API integration details deferred.
+44: 2. Executive Summary
+45: 
+46: The Inventory Management System (IMS), formerly referred to as the Terminal Tracking Application, is a purpose-built standalone web application for Terminal Distributor — a global payment terminal distributor managing serialised payment devices across a worldwide warehouse network. The application serves as the master system of record for terminal serial number states, inventory counts, order management, and cost tracking.
+47: 
+48: Release 1 is complete and running locally. This document captures the v1.2 updates: a set of R1 patch items identified post-build (UI improvements and label corrections), and the full R2 feature scope including inventory enhancements, cost calculation engine, cost analytics, and all previously planned planning and integration modules.
+49: 
+50: Technology stack: React + Vite frontend with e2open teal green (#1A6B7B) navbar, Python FastAPI backend, SQLite (local) upgradeable to PostgreSQL, Tailwind CSS.
+51: 3. Background & Context
+52: 
+53: 3.1 Customer Profile
+54: Terminal Distributor is a global distributor of payment terminals operating warehouses and FSLs across Europe, North America, Asia-Pacific, and South America. Their portfolio includes ~486 SKUs: serialised terminals, serialised accessories, and non-serialised accessories (referred to in the IMS as Accessories).
+55: 
+56: 3.2 Warehouse & FSL Network
+57: 
+58: Code
+59: Name
+60: Country
+61: Region
+62: Type
+63: Oostrum
+64: Oostrum Warehouse
+65: Netherlands
+66: Europe
+67: Warehouse
+68: DHLAU
+69: DHL Australia
+70: Australia
+71: Asia-Pacific
+72: Warehouse
+73: Memphis
+74: Memphis Warehouse
+75: USA
+76: North America
+77: Warehouse
+78: Sacramento
+79: Sacramento Warehouse
+80: USA
+81: North America
+82: Warehouse
+83: Sorocaba
+84: Sorocaba Warehouse
+85: Brazil
+86: South America
+87: Warehouse
+88: Changi
+89: Changi Singapore
+90: Singapore
+91: Asia-Pacific
+92: Warehouse
+93: FSLUK
+94: FSL United Kingdom
+95: UK
+96: UK
+97: FSL
+98: FSLMX
+99: FSL Mexico
+100: Mexico
+101: Mexico
+102: FSL
+103: FSLSG
+104: FSL Singapore
+105: Singapore
+106: Singapore
+107: FSL
+108: FSLJP
+109: FSL Japan
+110: Japan
+111: Japan
+112: FSL
+113: FSLbrazil
+114: FSL Brazil
+115: Brazil
+116: South America
+117: FSL
+118: 4. Objectives
+119: 
+120: Serial-Level Whereabouts: Monitor location and status of every terminal by serial number at all times.
+121: Inventory Overview: Real-time counts of terminals by product and by location across all states.
+122: Cost Tracking: Track activity costs per terminal (per state transition) and aggregate cost totals, normalised to reporting currency.
+123: Cost Analytics: KPI dashboards for accumulated cost per terminal, cost by location, cost by product family, and repair cost analysis.
+124: Inventory Planning (R2): Identify locations where terminals are missing or in overflow; support repositioning.
+125: Collaboration: Enable Supply Planner, Warehouse User, Repair Centre, and Supplier to collaborate on a single record.
+126: Repositioning Planning (R2): Allow planning of terminal transfers between warehouses.
+127: KPIs & Analytics: Dwell times, repair times, transit times, order fulfilment rate, return rates, cost metrics.
+128: Return & Repair Management: Full return and repair lifecycle at serial number level including Scrap/End of Lifecycle.
+129: Available-to-Promise: Instant ATP confirmation on outbound orders.
+130: Purchase Prediction (R2): Forecast new purchase orders from suppliers.
+131: Master Data Management: All reference data managed by Admin with Excel upload support.
+132: 5. Scope
+133: 
+134: 5.1 Release 1 — Delivered
+135: Release 1 is complete. The following modules were delivered:
+136: 
+137: Module
+138: Status
+139: Master Data (Products/BOM, Suppliers, Locations, Transit Times, Assembly Times, Customers, States, Activity Costs, Exchange Rates, Order Numbering)
+140: Delivered
+141: Serial Number Tracking + Configurable State Machine + 1:N State History
+142: Delivered
+143: Accessories Inventory (count per location, Received/Available)
+144: Delivered
+145: Inbound Flow (PO Header+Lines, Serial Import, Receipt Confirmation, qty ordered/expected/received view)
+146: Delivered
+147: Outbound Orders (Sales SO, Rental RN, Replacement RP, Distribution DS) + ATP + Kit Fulfillment
+148: Delivered
+149: Return & Repair (Return RE, Repair RR, Scrap outcome, auto-draft Replacement)
+150: Delivered
+151: Mass Upload (PO receipt, state updates, shipment confirmation, accessories adjustment)
+152: Delivered
+153: Analytics & KPI Dashboard (inventory, dwell times, repair times, order metrics)
+154: Delivered
+155: User Roles & Auth (Admin, Supply Planner, Warehouse User, Repair Centre, Supplier)
+156: Delivered
+157: API Integration Module (stub/scaffold)
+158: Delivered — not activated
+159: 
+160: 5.2 R1 Patch Items — Post-Build Improvements
+161: The following improvements were identified after the R1 build. These are low-effort UI/UX changes to be applied as a patch to R1 before or alongside R2 development:
+162: 
+163: #
+164: Change
+165: Description
+166: P-01
+167: App renamed
+168: Application title updated to 'Inventory Management System' (IMS). Internal reference 'Terminal Tracking Application' retained in documentation only.
+169: P-02
+170: e2open green navbar
+171: Navbar colour changed from navy (#003087) to e2open teal green (#1A6B7B) across the full application.
+172: P-03
+173: Nav: Warehouse Tasks
+174: Navigation items 'Warehouse' and 'Upload' merged into a single 'Warehouse Tasks' module with a unified icon.
+175: P-04
+176: Nav: Admin
+177: Navigation items 'Master Data' and 'Admin' merged into a single 'Admin' module.
+178: P-05
+179: Label: In Transit
+180: The 'Expecting' label and view renamed to 'In Transit' throughout the UI (terminal state display name unchanged in the DB; only the UI label is updated).
+181: P-06
+182: Label: Accessories
+183: 'Non-Serialised Inventory' renamed to 'Accessories' throughout the UI.
+184: 
+185: 5.3 Release 2 — Full Scope
+186: R2 builds on R1 with the following modules. Items marked NEW were added after the R1 build; items marked ORIGINAL were defined in v1.1.
+187: 
+188: Module
+189: Type
+190: Description
+191: Inventory: Latest Date & Location column
+192: NEW
+193: 'All Terminals' inventory view gains a 'Latest Date' column (date of last state change) and the 'Latest Location' label is made explicit in the column header.
+194: In Transit view: full transit states
+195: NEW
+196: The In Transit view (formerly Expecting) is expanded to include all terminals in TRANSIT_TO_COMPANY and TRANSIT_TO_WAREHOUSE states, not only EXPECTING. Provides a unified view of all terminals currently in movement.
+197: Column filtering on inventory views
+198: NEW
+199: All inventory sub-views (All Terminals, By State, By Location, By Product, In Transit, Accessories) support column-level filtering — click-to-filter on any column header.
+200: PO: Received Date field
+201: NEW
+202: Purchase Order and PO Line records gain a Received Date field, populated when the warehouse user confirms receipt. Visible in PO Detail view and exportable.
+203: Cost Calculation engine
+204: NEW
+205: Activity costs from the Activity Cost Master are automatically applied at each state transition for a serial number. Running accumulated cost per serial is maintained in the database, normalised to the warehouse reporting currency via Exchange Rate Master.
+206: Cost KPI Dashboards
+207: NEW
+208: Dedicated cost analytics views: accumulated cost per serial number (searchable); cost by location (total activity spend per warehouse); cost by product family; repair cost analysis (actual vs. standard cost per repair centre). All views exportable to Excel.
+209: Demand Planning
+210: ORIGINAL
+211: Demand Planner role; demand signal management; forward demand forecasting.
+212: Supply Planning
+213: ORIGINAL
+214: Safety stock targets; replenishment planning; inventory gap/overflow identification.
+215: Repositioning Planning
+216: ORIGINAL
+217: Plan and execute inter-warehouse transfers based on demand vs. supply imbalance.
+218: Purchase Prediction
+219: ORIGINAL

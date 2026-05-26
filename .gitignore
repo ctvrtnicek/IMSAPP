@@ -8,4 +8,4 @@ frontend/node_modules/
 frontend/dist/
 *.egg-info/
 .venv/
-venv/
+venv/SPECS/unpacked_*

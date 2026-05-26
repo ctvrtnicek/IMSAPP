@@ -1,6 +1,6 @@
 -- =============================================================================
 -- INVENTORY MANAGEMENT SYSTEM (IMS) — DATABASE SCHEMA
--- Version: 1.3 | May 2026
+-- Version: 2.1 | May 2026
 -- Database: SQLite (compatible with PostgreSQL via SQLAlchemy)
 -- =============================================================================
 
@@ -718,3 +718,303 @@ CREATE INDEX idx_order_customer     ON outbound_orders(customer_id);
 CREATE INDEX idx_dist_status        ON distribution_orders(status);
 CREATE INDEX idx_rr_status          ON repair_rework_orders(status);
 CREATE INDEX idx_return_status      ON return_orders(status);
+
+-- =============================================================================
+-- RELEASE 3 ADDITIONS  |  IMS Schema v2.1  |  May 2026
+-- =============================================================================
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — REGIONS & COUNTRIES (global market coverage)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE regions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_code  TEXT NOT NULL UNIQUE,   -- EMEA, APAC, NA, SA
+    region_name  TEXT NOT NULL,
+    active       INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO regions (region_code, region_name) VALUES
+    ('EMEA','Europe Middle East & Africa'),
+    ('APAC','Asia Pacific'),
+    ('NA','North America'),
+    ('SA','South America');
+
+CREATE TABLE countries (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    country_code  TEXT NOT NULL UNIQUE,  -- ISO 3166-1 alpha-2
+    country_name  TEXT NOT NULL,
+    region_id     INTEGER NOT NULL REFERENCES regions(id),
+    serviced      INTEGER NOT NULL DEFAULT 0,  -- 1 = activated serviced market
+    activated_at  TIMESTAMP
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — NETWORK VERSIONS (baseline + simulation planning)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE network_versions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    version_name     TEXT NOT NULL,
+    version_type     TEXT NOT NULL CHECK(version_type IN ('baseline','simulation')),
+    reference_number TEXT,
+    effective_date   DATE,
+    committed_at     TIMESTAMP,
+    committed_by_user_id INTEGER REFERENCES users(id),
+    notes            TEXT,
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — SUPPLY FLOWS & FLOW CONSTRAINTS (network configuration)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE supply_flows (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    network_version_id  INTEGER NOT NULL REFERENCES network_versions(id),
+    from_location_id    INTEGER NOT NULL REFERENCES locations(id),
+    to_location_id      INTEGER NOT NULL REFERENCES locations(id),
+    flow_type           TEXT NOT NULL CHECK(flow_type IN ('A','B','C','D','E','F','G','H','I')),
+    -- A=Supplier->WH, B=WH->FSL, C=WH->WH, D=WH->Repair, E=Repair->WH,
+    -- F=Repair->FSL, G=WH->Customer, H=FSL->Customer, I=Customer->WH
+    active              INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE flow_constraints (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    flow_id              INTEGER NOT NULL REFERENCES supply_flows(id),
+    product_id           INTEGER REFERENCES products(id),       -- NULL = all products
+    replenishment_type   TEXT,                                  -- NULL = all types
+    valid_from           DATE,
+    valid_to             DATE
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — CUSTOMER SEGMENTS (demand segmentation for ATP rules)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE customer_segments (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    segment_code   TEXT NOT NULL UNIQUE,
+    segment_name   TEXT NOT NULL,
+    priority       INTEGER NOT NULL DEFAULT 99  -- lower = higher priority
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — FIRMWARE MASTER (device version control)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE firmware (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    firmware_name    TEXT NOT NULL,
+    version          TEXT NOT NULL,
+    release_number   TEXT,
+    release_date     DATE,
+    release_hour     TEXT,               -- HH:MM
+    key_used         TEXT,               -- encryption key reference
+    file_path        TEXT,               -- uploaded firmware binary path
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(firmware_name, version, release_number)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — PRODUCT PRICING (regional & country-level pricing)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE product_pricing (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id              INTEGER NOT NULL REFERENCES products(id),
+    region_id               INTEGER REFERENCES regions(id),   -- NULL = all regions in country
+    country_id              INTEGER REFERENCES countries(id), -- NULL = whole region
+    sell_price              REAL,
+    rental_price_month      REAL,
+    currency                TEXT NOT NULL,
+    effective_date          DATE,
+    UNIQUE(product_id, region_id, country_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — PRODUCT ALTERNATIVES (substitution management)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE product_alternatives (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id               INTEGER NOT NULL REFERENCES products(id),
+    alternative_product_id   INTEGER NOT NULL REFERENCES products(id),
+    sequence                 INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(product_id, alternative_product_id),
+    CHECK(product_id != alternative_product_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — ATP RULES (configurable per region and customer segment)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE atp_rules (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    region_id     INTEGER REFERENCES regions(id),            -- NULL = global
+    segment_id    INTEGER REFERENCES customer_segments(id),  -- NULL = all segments
+    rule_key      TEXT NOT NULL,   -- e.g. LOOKAHEAD_DAYS, ALLOW_CROSS_REGION
+    rule_value    TEXT NOT NULL,
+    description   TEXT
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — USER ROLES & LOCATION/REGION SCOPING (multi-role + data access)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE user_roles (
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    role_code    TEXT NOT NULL,   -- admin, supply_planner, warehouse_user, etc.
+    assigned_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, role_code)
+);
+
+CREATE TABLE user_locations (
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    location_id  INTEGER NOT NULL REFERENCES locations(id),
+    PRIMARY KEY (user_id, location_id)
+);
+
+CREATE TABLE user_regions (
+    user_id    INTEGER NOT NULL REFERENCES users(id),
+    region_id  INTEGER NOT NULL REFERENCES regions(id),
+    PRIMARY KEY (user_id, region_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — SYSTEM CONFIG (centralised admin-managed parameters)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE system_config (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_key      TEXT NOT NULL UNIQUE,
+    label           TEXT NOT NULL,
+    description     TEXT,
+    data_type       TEXT NOT NULL CHECK(data_type IN ('string','integer','boolean','decimal')),
+    current_value   TEXT,
+    default_value   TEXT,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by_user_id INTEGER REFERENCES users(id)
+);
+INSERT INTO system_config (config_key, label, description, data_type, current_value, default_value) VALUES
+    ('AI_ASSISTANT_ENABLED',            'AI Assistant Enabled',               'Show AI assistant chat panel in navigation bar',                   'boolean', '0',  '0'),
+    ('ANTHROPIC_API_KEY',               'Anthropic API Key',                  'API key for Claude AI assistant and document processor (masked)',  'string',  '',   ''),
+    ('ATP_REALLOCATION_LOOKBACK_DAYS',  'ATP Reallocation Look-back Days',    'Maximum days back for outbound order reallocation eligibility',    'integer', '30', '30'),
+    ('AI_DOCUMENT_PROCESSOR_ENABLED',   'AI Document Processor Enabled',      'Enable AI extraction for supplier document uploads on PO serials','boolean', '0',  '0');
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — SERIAL IMPORT BATCHES (AI doc processing + manual batches)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE serial_import_batches (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_id                 INTEGER NOT NULL REFERENCES purchase_orders(id),
+    po_line_id            INTEGER NOT NULL REFERENCES purchase_order_lines(id),
+    shipment_reference    TEXT NOT NULL,
+    source_type           TEXT NOT NULL CHECK(source_type IN ('manual','ai_document','excel')),
+    document_file_path    TEXT,            -- path to uploaded source document
+    status                TEXT NOT NULL DEFAULT 'Pending'
+                          CHECK(status IN ('Pending','Confirmed','Rejected')),
+    confirmed_at          TIMESTAMP,
+    imported_by_user_id   INTEGER REFERENCES users(id),
+    imported_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — REPAIR DOCUMENTS (uploaded against RR orders — storage only)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE repair_documents (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    rr_order_id           INTEGER NOT NULL REFERENCES repair_rework_orders(id),
+    file_name             TEXT NOT NULL,
+    file_path             TEXT NOT NULL,
+    file_size_bytes       INTEGER,
+    uploaded_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    uploaded_by_user_id   INTEGER REFERENCES users(id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TABLES — AI ASSISTANT CONVERSATIONS & MESSAGES
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE ai_conversations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    session_id  TEXT NOT NULL UNIQUE,
+    page_context TEXT,              -- page/module open when conversation started
+    started_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ended_at    TIMESTAMP
+);
+
+CREATE TABLE ai_messages (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id   INTEGER NOT NULL REFERENCES ai_conversations(id),
+    role              TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    content           TEXT NOT NULL,
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 ALTERATIONS TO EXISTING TABLES
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- locations: add region and country references
+ALTER TABLE locations ADD COLUMN region_id   INTEGER REFERENCES regions(id);
+ALTER TABLE locations ADD COLUMN country_id  INTEGER REFERENCES countries(id);
+
+-- users: add demand_planner_region for legacy support
+ALTER TABLE users ADD COLUMN demand_planner_region TEXT;
+
+-- customers: add segment and country references
+ALTER TABLE customers ADD COLUMN segment_id  INTEGER REFERENCES customer_segments(id);
+ALTER TABLE customers ADD COLUMN country_id  INTEGER REFERENCES countries(id);
+
+-- products: add firmware reference
+ALTER TABLE products ADD COLUMN latest_firmware_id  INTEGER REFERENCES firmware(id);
+
+-- product_bom_components: add assembly leadtime (quantity already present)
+ALTER TABLE product_bom_components ADD COLUMN assembly_leadtime_value  INTEGER;
+ALTER TABLE product_bom_components ADD COLUMN assembly_leadtime_unit   TEXT CHECK(assembly_leadtime_unit IN ('Hours','Days'));
+
+-- purchase_order_lines: add price per product (R3 Quality Hold requirement)
+ALTER TABLE purchase_order_lines ADD COLUMN price_per_product  REAL;
+ALTER TABLE purchase_order_lines ADD COLUMN price_currency     TEXT;
+
+-- outbound_order_lines: add ATP fulfilment fields
+ALTER TABLE outbound_order_lines ADD COLUMN fulfilling_location_id   INTEGER REFERENCES locations(id);
+ALTER TABLE outbound_order_lines ADD COLUMN edd                      DATE;       -- estimated delivery date
+ALTER TABLE outbound_order_lines ADD COLUMN atp_status               TEXT CHECK(atp_status IN ('ATP_OK','ATP_PARTIAL','ATP_NONE'));
+ALTER TABLE outbound_order_lines ADD COLUMN bom_assembly_status      TEXT CHECK(bom_assembly_status IN ('COMPLETE','PARTIAL','PENDING'));
+
+-- outbound_orders: add allocation donor reference
+ALTER TABLE outbound_orders ADD COLUMN allocation_source_order_id  INTEGER REFERENCES outbound_orders(id);
+
+-- serial_numbers: add firmware, pegging, and import batch references
+ALTER TABLE serial_numbers ADD COLUMN firmware_id          INTEGER REFERENCES firmware(id);
+ALTER TABLE serial_numbers ADD COLUMN firmware_applied_at  TIMESTAMP;
+ALTER TABLE serial_numbers ADD COLUMN pegged_to_order_id   INTEGER REFERENCES outbound_orders(id);
+ALTER TABLE serial_numbers ADD COLUMN import_batch_id      INTEGER REFERENCES serial_import_batches(id);
+
+-- return_orders: add RMA reference
+ALTER TABLE return_orders ADD COLUMN rma_reference  TEXT;   -- format: RMAxxxxxx
+
+-- repair_rework_orders: add RMA reference
+ALTER TABLE repair_rework_orders ADD COLUMN rma_reference  TEXT;   -- matched to return_orders.rma_reference
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 NEW TERMINAL STATE & ORDER NUMBERING
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- New terminal state: QUALITY_HOLD (R3 Phase 3D)
+INSERT INTO terminal_states (code, display_name, warehouse_type, sequence_number,
+    expected_duration_value, expected_duration_unit) VALUES
+    ('QUALITY_HOLD', 'Quality Hold', 'Pre-Warehouse', 2, NULL, NULL);
+
+-- New order numbering: RMA (R3 Phase 3E)
+INSERT INTO order_numbering (order_type, prefix, padding_length) VALUES
+    ('RMAOrder', 'RMA', 6);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- R3 INDEXES (supporting new tables and R3 features)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE INDEX idx_sn_firmware      ON serial_numbers(firmware_id);
+CREATE INDEX idx_sn_pegged        ON serial_numbers(pegged_to_order_id);
+CREATE INDEX idx_sn_batch         ON serial_numbers(import_batch_id);
+CREATE INDEX idx_supply_flows_ver ON supply_flows(network_version_id);
+CREATE INDEX idx_flow_from        ON supply_flows(from_location_id);
+CREATE INDEX idx_flow_to          ON supply_flows(to_location_id);
+CREATE INDEX idx_atp_rules_region ON atp_rules(region_id);
+CREATE INDEX idx_rr_docs          ON repair_documents(rr_order_id);
+CREATE INDEX idx_ai_conv_user     ON ai_conversations(user_id);
+CREATE INDEX idx_ai_msg_conv      ON ai_messages(conversation_id);
+CREATE INDEX idx_batches_po       ON serial_import_batches(po_id);
+CREATE INDEX idx_return_rma       ON return_orders(rma_reference);
+CREATE INDEX idx_rr_rma           ON repair_rework_orders(rma_reference);

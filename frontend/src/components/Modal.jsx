@@ -6,7 +6,7 @@
  *   onClose  - fn called when X button or backdrop clicked
  *   children - modal body content
  */
-export default function Modal({ title, onClose, children }) {
+export default function Modal({ title, onClose, children, wide }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -15,7 +15,7 @@ export default function Modal({ title, onClose, children }) {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col max-h-[90vh]">
+      <div className={`bg-white rounded-2xl shadow-2xl w-full mx-4 flex flex-col max-h-[90vh] ${wide ? 'max-w-3xl' : 'max-w-lg'}`}>
         {/* Header */}
         <div
           className="flex items-center justify-between px-6 py-4 rounded-t-2xl flex-shrink-0"

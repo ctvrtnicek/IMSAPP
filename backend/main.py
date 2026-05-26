@@ -27,6 +27,10 @@ from routers import claims as claims_module
 from routers import demand_planning as demand_planning_module
 from routers import supply_planning as supply_planning_module
 from routers import alerts as alerts_module
+from routers import system_config as system_config_module
+from routers import search as search_module
+from routers import network_design as network_design_module
+from routers import firmware as firmware_module
 
 # ---------------------------------------------------------------------------
 # Application
@@ -108,6 +112,18 @@ app.include_router(supply_planning_module.router)
 
 # Alerts router (Phase 2K)
 app.include_router(alerts_module.router)
+
+# Phase 3A — System Config
+app.include_router(system_config_module.router)
+
+# Phase 3A — Global Search
+app.include_router(search_module.router)
+
+# Phase 3B — Network Design (regions, countries, versions, flows)
+app.include_router(network_design_module.router)
+
+# Phase 3B — Firmware master data
+app.include_router(firmware_module.router)
 
 # ---------------------------------------------------------------------------
 # Startup

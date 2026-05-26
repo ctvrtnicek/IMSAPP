@@ -21,7 +21,7 @@ export default function ReturnDetailStandalonePage() {
 
   return (
     <AppShell title={`Return Order — ${orderNumber}`} onBack={() => navigate(-1)}>
-      <div style={{ padding: '2rem', maxWidth: 1200, width: '100%', margin: '0 auto' }}>
+      <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
         {loading && <p style={{ color: 'var(--fg-muted)' }}>Loading…</p>}
         {error && <p style={{ color: 'var(--alert)' }}>{error}</p>}
         {orderId && (

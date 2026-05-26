@@ -16,6 +16,12 @@ import {
   updateProductSupplier,
   removeProductSupplier,
 } from '../../api/supply_planning.js'
+import {
+  listProductPricing, addProductPricing, deleteProductPricing,
+  listProductAlternatives, addProductAlternative, deleteProductAlternative,
+  listProductBom, addProductBomComponent, updateProductBomComponent, deleteProductBomComponent,
+  listFirmware, setProductLatestFirmware,
+} from '../../api/firmware.js'
 
 const PRODUCT_TYPES = ['Payment Terminal', 'Accessory', 'Battery']
 const PRODUCT_CATEGORIES = ['PaymentDevice', 'SerializedAccessory', 'Accessory']
@@ -46,6 +52,20 @@ export default function ProductsPage({ role }) {
   const [imagePreview, setImagePreview] = useState(null)
   // blob URL cache: { [productId]: blobUrl }
   const [imageBlobUrls, setImageBlobUrls] = useState({})
+
+  // Phase 3B — modal sub-tab + sub-resource state
+  const [modalTab, setModalTab] = useState('basic')
+  const [pricingRows, setPricingRows] = useState([])
+  const [altRows, setAltRows] = useState([])
+  const [bomRows, setBomRows] = useState([])
+  const [firmwareList, setFirmwareList] = useState([])
+  const [latestFirmwareId, setLatestFirmwareId] = useState('')
+  // Pricing add form
+  const [pricingForm, setPricingForm] = useState({ region_id: '', country_id: '', sell_price: '', rental_price_month: '', currency: 'EUR', effective_date: '' })
+  // Alternatives add form
+  const [altForm, setAltForm] = useState({ alternative_product_id: '', sequence: '1' })
+  // BOM add form
+  const [bomForm, setBomForm] = useState({ component_product_id: '', quantity: '1', assembly_leadtime_value: '', assembly_leadtime_unit: 'hours' })
 
   // Expanded suppliers panel
   const [expandedId, setExpandedId] = useState(null)
@@ -125,7 +145,22 @@ export default function ProductsPage({ role }) {
   }
 
   function openAdd() {
-    setEditingId(null); setForm(EMPTY_FORM); setImageFile(null); setImagePreview(null); setShowModal(true)
+    setEditingId(null); setForm(EMPTY_FORM); setImageFile(null); setImagePreview(null)
+    setModalTab('basic'); setPricingRows([]); setAltRows([]); setBomRows([])
+    setShowModal(true)
+  }
+
+  async function loadSubResources(productId) {
+    const [pr, ar, br, fr] = await Promise.all([
+      listProductPricing(productId).catch(() => ({ data: [] })),
+      listProductAlternatives(productId).catch(() => ({ data: [] })),
+      listProductBom(productId).catch(() => ({ data: [] })),
+      listFirmware().catch(() => ({ data: [] })),
+    ])
+    setPricingRows(Array.isArray(pr.data) ? pr.data : [])
+    setAltRows(Array.isArray(ar.data) ? ar.data : [])
+    setBomRows(Array.isArray(br.data) ? br.data : [])
+    setFirmwareList(Array.isArray(fr.data) ? fr.data : [])
   }
 
   function openEdit(row) {
@@ -146,8 +181,10 @@ export default function ProductsPage({ role }) {
       repair_max_days: row.repair_max_days != null ? String(row.repair_max_days) : '',
     })
     setImageFile(null)
-    // Show existing image as preview using cached blob URL
     setImagePreview(imageBlobUrls[row.id] || null)
+    setLatestFirmwareId(row.latest_firmware_id ? String(row.latest_firmware_id) : '')
+    setModalTab('basic')
+    loadSubResources(row.id)
     setShowModal(true)
   }
 
@@ -376,8 +413,21 @@ export default function ProductsPage({ role }) {
       </div>
 
       {showModal && (
-        <Modal title={editingId ? 'Edit Product' : 'Add Product'} onClose={() => setShowModal(false)}>
+        <Modal title={editingId ? 'Edit Product' : 'Add Product'} onClose={() => setShowModal(false)} wide>
+          {/* Tab bar (only for editing existing product) */}
+          {editingId && (
+            <div style={{ borderBottom: '1px solid var(--border-1)', display: 'flex', gap: 0, marginBottom: '1rem' }}>
+              {[['basic','Basic'], ['pricing','Pricing'], ['alternatives','Alternatives'], ['bom','BOM Config']].map(([id, label]) => (
+                <button key={id} type="button"
+                  className={`e2o-tab${modalTab === id ? ' active' : ''}`}
+                  style={{ fontSize: 13, padding: '8px 14px' }}
+                  onClick={() => setModalTab(id)}>{label}</button>
+              ))}
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* ── Basic tab ─────────────────────────────────────────────── */}
+            <div style={{ display: (!editingId || modalTab === 'basic') ? 'block' : 'none' }}>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label="Code" required>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} required placeholder="e.g. V400M-001" />
@@ -496,12 +546,56 @@ export default function ProductsPage({ role }) {
               </div>
             </div>
 
+            {/* Latest Firmware (Phase 3B) */}
+            {editingId && firmwareList.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Latest Firmware</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select className="e2o-select" style={{ maxWidth: 320 }}
+                    value={latestFirmwareId}
+                    onChange={e => setLatestFirmwareId(e.target.value)}>
+                    <option value="">— None —</option>
+                    {firmwareList.map(fw => <option key={fw.id} value={fw.id}>{fw.firmware_name} v{fw.version}</option>)}
+                  </select>
+                  <button type="button" className="e2o-btn e2o-btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }}
+                    onClick={async () => {
+                      try {
+                        await setProductLatestFirmware(editingId, latestFirmwareId ? Number(latestFirmwareId) : null)
+                        await fetchProducts()
+                      } catch (e) { alert(e.response?.data?.detail || 'Error') }
+                    }}>Set</button>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setShowModal(false)} className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">Cancel</button>
               <button type="submit" disabled={submitting} className="text-sm px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50" style={{ backgroundColor: 'var(--cadet-dark)' }}>
                 {submitting ? 'Saving…' : 'Save'}
               </button>
             </div>
+            </div>{/* end basic tab */}
+
+            {/* ── Pricing tab ───────────────────────────────────────────── */}
+            {editingId && modalTab === 'pricing' && (
+              <ProductPricingTab productId={editingId} rows={pricingRows}
+                onRefresh={() => listProductPricing(editingId).then(r => setPricingRows(r.data || []))}
+                form={pricingForm} setForm={setPricingForm} products={products} />
+            )}
+
+            {/* ── Alternatives tab ──────────────────────────────────────── */}
+            {editingId && modalTab === 'alternatives' && (
+              <ProductAlternativesTab productId={editingId} rows={altRows}
+                onRefresh={() => listProductAlternatives(editingId).then(r => setAltRows(r.data || []))}
+                form={altForm} setForm={setAltForm} products={products} />
+            )}
+
+            {/* ── BOM Config tab ────────────────────────────────────────── */}
+            {editingId && modalTab === 'bom' && (
+              <ProductBomTab productId={editingId} rows={bomRows} isBom={!!form.is_bom}
+                onRefresh={() => listProductBom(editingId).then(r => setBomRows(r.data || []))}
+                form={bomForm} setForm={setBomForm} products={products} />
+            )}
           </form>
         </Modal>
       )}
@@ -516,6 +610,216 @@ function FormRow({ label, required, children }) {
         {label}{required && <span className="text-red-400 ml-0.5">*</span>}
       </label>
       {children}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3B sub-tab components (used inside ProductsPage modal)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProductPricingTab({ productId, rows, onRefresh, form, setForm }) {
+  async function handleAdd() {
+    if (!form.currency) return
+    try {
+      await addProductPricing(productId, {
+        region_id: form.region_id ? Number(form.region_id) : null,
+        sell_price: form.sell_price !== '' ? parseFloat(form.sell_price) : null,
+        rental_price_month: form.rental_price_month !== '' ? parseFloat(form.rental_price_month) : null,
+        currency: form.currency,
+        effective_date: form.effective_date || null,
+      })
+      setForm({ region_id: '', country_id: '', sell_price: '', rental_price_month: '', currency: 'EUR', effective_date: '' })
+      onRefresh()
+    } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Remove this pricing row?')) return
+    try { await deleteProductPricing(productId, id); onRefresh() }
+    catch (e) { alert(e.response?.data?.detail || 'Error') }
+  }
+
+  return (
+    <div style={{ paddingTop: 4 }}>
+      <table className="e2o-table" style={{ marginBottom: '1rem' }}>
+        <thead><tr><th>Region</th><th>Sell Price</th><th>Rental/Month</th><th>Currency</th><th>Eff. Date</th><th></th></tr></thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={6} style={{ color: 'var(--fg-muted)', textAlign: 'center' }}>No pricing rows.</td></tr>}
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td>{r.region_id || '—'}</td>
+              <td>{r.sell_price != null ? r.sell_price : '—'}</td>
+              <td>{r.rental_price_month != null ? r.rental_price_month : '—'}</td>
+              <td>{r.currency}</td>
+              <td>{r.effective_date || '—'}</td>
+              <td><button className="e2o-btn e2o-btn-danger" style={{ padding: '2px 8px', fontSize: 11 }} type="button" onClick={() => handleDelete(r.id)}>Remove</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ background: 'var(--bg-2)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-1)' }}>
+        <p style={{ margin: '0 0 .75rem', fontWeight: 600, fontSize: 13 }}>Add pricing row</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.5rem .75rem', marginBottom: '.75rem' }}>
+          {[['sell_price','Sell Price','number'],['rental_price_month','Rental/Month','number'],['currency','Currency','text'],['effective_date','Effective Date','date']].map(([f,l,t]) => (
+            <div key={f}>
+              <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>{l}</label>
+              <input className="e2o-input" type={t} value={form[f]} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))} />
+            </div>
+          ))}
+        </div>
+        <button className="e2o-btn e2o-btn-primary" type="button" style={{ padding: '6px 14px', fontSize: 13 }} onClick={handleAdd}>Add Row</button>
+      </div>
+    </div>
+  )
+}
+
+function ProductAlternativesTab({ productId, rows, onRefresh, form, setForm, products }) {
+  async function handleAdd() {
+    if (!form.alternative_product_id) return
+    try {
+      await addProductAlternative(productId, {
+        alternative_product_id: Number(form.alternative_product_id),
+        sequence: Number(form.sequence) || 1,
+      })
+      setForm({ alternative_product_id: '', sequence: String(rows.length + 1) })
+      onRefresh()
+    } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Remove this alternative?')) return
+    try { await deleteProductAlternative(productId, id); onRefresh() }
+    catch (e) { alert(e.response?.data?.detail || 'Error') }
+  }
+
+  const usedIds = new Set(rows.map(r => r.alternative_product_id))
+
+  return (
+    <div style={{ paddingTop: 4 }}>
+      <table className="e2o-table" style={{ marginBottom: '1rem' }}>
+        <thead><tr><th>Seq</th><th>Code</th><th>Name</th><th></th></tr></thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={4} style={{ color: 'var(--fg-muted)', textAlign: 'center' }}>No alternatives defined.</td></tr>}
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{ fontWeight: 700, color: 'var(--cadet-dark)' }}>{r.sequence}</td>
+              <td style={{ fontFamily: 'var(--font-mono)' }}>{r.alternative_code}</td>
+              <td>{r.alternative_name}</td>
+              <td><button className="e2o-btn e2o-btn-danger" style={{ padding: '2px 8px', fontSize: 11 }} type="button" onClick={() => handleDelete(r.id)}>Remove</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ background: 'var(--bg-2)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-1)' }}>
+        <p style={{ margin: '0 0 .75rem', fontWeight: 600, fontSize: 13 }}>Add alternative</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '.75rem', marginBottom: '.75rem' }}>
+          <div>
+            <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>Product</label>
+            <select className="e2o-select" value={form.alternative_product_id}
+              onChange={e => setForm(p => ({ ...p, alternative_product_id: e.target.value }))}>
+              <option value="">Select product…</option>
+              {products.filter(p => p.active && !usedIds.has(p.id) && p.id !== productId).map(p => (
+                <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>Sequence</label>
+            <input className="e2o-input" type="number" min="1" value={form.sequence}
+              onChange={e => setForm(p => ({ ...p, sequence: e.target.value }))} />
+          </div>
+        </div>
+        <button className="e2o-btn e2o-btn-primary" type="button" style={{ padding: '6px 14px', fontSize: 13 }} onClick={handleAdd}>Add</button>
+      </div>
+    </div>
+  )
+}
+
+function ProductBomTab({ productId, rows, isBom, onRefresh, form, setForm, products }) {
+  async function handleAdd() {
+    if (!form.component_product_id) return
+    try {
+      await addProductBomComponent(productId, {
+        component_product_id: Number(form.component_product_id),
+        quantity: Number(form.quantity) || 1,
+        assembly_leadtime_value: form.assembly_leadtime_value !== '' ? Number(form.assembly_leadtime_value) : null,
+        assembly_leadtime_unit: form.assembly_leadtime_unit || null,
+      })
+      setBomFormReset()
+      onRefresh()
+    } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  }
+
+  function setBomFormReset() {
+    setForm({ component_product_id: '', quantity: '1', assembly_leadtime_value: '', assembly_leadtime_unit: 'hours' })
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Remove this BOM component?')) return
+    try { await deleteProductBomComponent(productId, id); onRefresh() }
+    catch (e) { alert(e.response?.data?.detail || 'Error') }
+  }
+
+  if (!isBom) {
+    return <p style={{ color: 'var(--fg-muted)', padding: '1rem 0' }}>This product is not marked as a BOM. Enable "Bill of Materials" on the Basic tab first.</p>
+  }
+
+  const usedIds = new Set(rows.map(r => r.component_product_id))
+
+  return (
+    <div style={{ paddingTop: 4 }}>
+      <table className="e2o-table" style={{ marginBottom: '1rem' }}>
+        <thead><tr><th>Component</th><th>Name</th><th>Qty</th><th>Assembly Lead Time</th><th></th></tr></thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={5} style={{ color: 'var(--fg-muted)', textAlign: 'center' }}>No BOM components defined.</td></tr>}
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--cadet-dark)' }}>{r.component_code}</td>
+              <td>{r.component_name}</td>
+              <td style={{ fontWeight: 700 }}>{r.quantity}</td>
+              <td style={{ color: 'var(--fg-3)' }}>
+                {r.assembly_leadtime_value ? `${r.assembly_leadtime_value} ${r.assembly_leadtime_unit}` : '—'}
+              </td>
+              <td><button className="e2o-btn e2o-btn-danger" style={{ padding: '2px 8px', fontSize: 11 }} type="button" onClick={() => handleDelete(r.id)}>Remove</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ background: 'var(--bg-2)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-1)' }}>
+        <p style={{ margin: '0 0 .75rem', fontWeight: 600, fontSize: 13 }}>Add component</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1fr', gap: '.5rem .75rem', marginBottom: '.75rem' }}>
+          <div>
+            <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>Component Product</label>
+            <select className="e2o-select" value={form.component_product_id}
+              onChange={e => setForm(p => ({ ...p, component_product_id: e.target.value }))}>
+              <option value="">Select…</option>
+              {products.filter(p => p.active && !usedIds.has(p.id) && p.id !== productId).map(p => (
+                <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>Qty</label>
+            <input className="e2o-input" type="number" min="1" value={form.quantity}
+              onChange={e => setForm(p => ({ ...p, quantity: e.target.value }))} />
+          </div>
+          <div>
+            <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>Lead Time Value</label>
+            <input className="e2o-input" type="number" min="0" value={form.assembly_leadtime_value}
+              onChange={e => setForm(p => ({ ...p, assembly_leadtime_value: e.target.value }))} />
+          </div>
+          <div>
+            <label className="e2o-eyebrow" style={{ display: 'block', marginBottom: 3 }}>Unit</label>
+            <select className="e2o-select" value={form.assembly_leadtime_unit}
+              onChange={e => setForm(p => ({ ...p, assembly_leadtime_unit: e.target.value }))}>
+              <option value="hours">Hours</option>
+              <option value="days">Days</option>
+            </select>
+          </div>
+        </div>
+        <button className="e2o-btn e2o-btn-primary" type="button" style={{ padding: '6px 14px', fontSize: 13 }} onClick={handleAdd}>Add Component</button>
+      </div>
     </div>
   )
 }

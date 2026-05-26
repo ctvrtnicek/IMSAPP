@@ -30,47 +30,94 @@ import SupplyPage from './supply/SupplyPage.jsx'
 import DashboardHome from './dashboard/DashboardHome.jsx'
 import AlertsPage from './alerts/AlertsPage.jsx'
 import AlertRulesPage from './admin/AlertRulesPage.jsx'
+import SystemConfigPage from './admin/SystemConfigPage.jsx'
+import NetworkDesignPage from './admin/NetworkDesignPage.jsx'
+import FirmwarePage from './admin/FirmwarePage.jsx'
+import SearchResultsPage from './SearchResultsPage.jsx'
 
-const BRAND_COLOR = 'var(--cadet-dark)'
+// ---------------------------------------------------------------------------
+// Role-based visibility helpers
+// ---------------------------------------------------------------------------
+
+// Returns true if user holds any of the given role codes
+function hasAnyRole(roles, ...codes) {
+  return codes.some(c => roles.includes(c))
+}
+
+// Nav items visible to each role set
+function isNavVisible(navId, roles) {
+  const isAdmin       = roles.includes('admin')
+  const isInternal    = hasAnyRole(roles, 'admin','supply_planner','demand_planner',
+                          'warehouse_user','inbound_specialist','outbound_specialist',
+                          'rma_manager','senior_management')
+  const isSupplier    = roles.includes('supplier')
+  const isRepair      = roles.includes('repair_centre')
+  const isPlanner     = hasAnyRole(roles, 'admin','supply_planner','demand_planner')
+  const isWarehouse   = hasAnyRole(roles, 'admin','supply_planner','warehouse_user',
+                          'inbound_specialist','outbound_specialist')
+
+  switch (navId) {
+    case 'dashboard':       return true
+    case 'inventory':       return true  // all roles have Read on inventory
+    case 'sales-orders':    return hasAnyRole(roles,'admin','supply_planner','demand_planner',
+                              'warehouse_user','inbound_specialist','outbound_specialist',
+                              'rma_manager','senior_management')
+    case 'dist-orders':     return hasAnyRole(roles,'admin','supply_planner','demand_planner',
+                              'warehouse_user','inbound_specialist','outbound_specialist')
+    case 'repair-rework':   return !isSupplier
+    case 'demand':          return hasAnyRole(roles,'admin','supply_planner','demand_planner',
+                              'outbound_specialist','senior_management')
+    case 'supply':          return hasAnyRole(roles,'admin','supply_planner','demand_planner',
+                              'senior_management')
+    case 'analytics':       return hasAnyRole(roles,'admin','supply_planner','demand_planner',
+                              'warehouse_user','senior_management')
+    case 'warehouse-tasks': return isWarehouse
+    case 'alerts':          return true
+    case 'admin':           return isAdmin
+    default:                return isAdmin
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Navigation structure
+// ---------------------------------------------------------------------------
 
 const NAV_ITEMS = [
-  { id: 'dashboard',        label: 'Dashboard',        icon: '⊞' },
-  { id: 'inventory',        label: 'Inventory',        icon: '▦' },
-  // Step 3: Orders split into 3 separate nav items
-  { id: 'sales-orders',     label: 'Orders',           icon: '↑' },
-  { id: 'dist-orders',      label: 'Distribution',     icon: '⇆' },
-  { id: 'repair-rework',    label: 'Returns & Repairs', icon: '⚒' },
-  { id: 'demand',           label: 'Demand',           icon: '◈' },
-  { id: 'supply',           label: 'Supply',           icon: '⟳' },
-  { id: 'analytics',        label: 'Analytics',        icon: '⌁' },
-  // P-03: Warehouse + Upload merged into Warehouse Tasks
-  { id: 'warehouse-tasks',  label: 'Warehouse Tasks',  icon: '⬡' },
-  // P-04: Master Data + Admin merged into Admin
-  { id: 'alerts',           label: 'Alerts',           icon: '🔔' },
-  { id: 'admin',            label: 'Admin',            icon: '⚙' },
+  { id: 'dashboard',       label: 'Dashboard',          icon: '⊞' },
+  { id: 'inventory',       label: 'Inventory',          icon: '▦' },
+  { id: 'sales-orders',    label: 'Orders',             icon: '↑' },
+  { id: 'dist-orders',     label: 'Distribution',       icon: '⇆' },
+  { id: 'repair-rework',   label: 'Returns & Repairs',  icon: '⚒' },
+  { id: 'demand',          label: 'Demand',             icon: '◈' },
+  { id: 'supply',          label: 'Supply',             icon: '⟳' },
+  { id: 'analytics',       label: 'Analytics',          icon: '⌁' },
+  { id: 'warehouse-tasks', label: 'Warehouse Tasks',    icon: '⬡' },
+  { id: 'alerts',          label: 'Alerts',             icon: '🔔' },
+  { id: 'admin',           label: 'Admin',              icon: '⚙' },
 ]
 
 const ADMIN_TABS = [
-  { id: 'locations',       label: 'Locations' },
-  { id: 'suppliers',       label: 'Suppliers' },
-  { id: 'products',        label: 'Products' },
-  { id: 'customers',       label: 'Customers' },
-  { id: 'users',           label: 'Users & Roles' },
-  { id: 'states',          label: 'Terminal States' },
-  { id: 'calendars',       label: 'Calendars' },
-  { id: 'cost-master',     label: 'Cost Master' },
-  { id: 'exchange-rates',  label: 'FX Rates' },
-  { id: 'claim-types',     label: 'Claim Types' },
-  { id: 'alert-rules',     label: 'Alert Rules' },
-  { id: 'upload',          label: 'Upload' },
+  { id: 'locations',      label: 'Locations' },
+  { id: 'suppliers',      label: 'Suppliers' },
+  { id: 'products',       label: 'Products' },
+  { id: 'customers',      label: 'Customers' },
+  { id: 'users',          label: 'Users & Roles' },
+  { id: 'states',         label: 'Terminal States' },
+  { id: 'calendars',      label: 'Calendars' },
+  { id: 'cost-master',    label: 'Cost Master' },
+  { id: 'exchange-rates', label: 'FX Rates' },
+  { id: 'claim-types',    label: 'Claim Types' },
+  { id: 'alert-rules',      label: 'Alert Rules' },
+  { id: 'system-config',    label: 'System Config' },
+  { id: 'network-design',   label: 'Network Design' },
+  { id: 'firmware',         label: 'Firmware' },
+  { id: 'upload',           label: 'Upload' },
 ]
 
-// P-03: Warehouse Tasks tab bar
 const WAREHOUSE_TABS = [
-  { id: 'state-update',  label: 'Warehouse Tasks' },
-  { id: 'work-orders',   label: 'Work Orders' },
+  { id: 'state-update', label: 'Warehouse Tasks' },
+  { id: 'work-orders',  label: 'Work Orders' },
 ]
-
 
 const RETURNS_TABS = [
   { id: 'return-orders', label: 'Return Orders' },
@@ -78,29 +125,30 @@ const RETURNS_TABS = [
 ]
 
 const INVENTORY_TABS = [
-  { id: 'all',          label: 'All Terminals' },
-  { id: 'by-state',     label: 'By State' },
-  { id: 'by-location',  label: 'By Location' },
-  { id: 'by-product',   label: 'By Product' },
-  // P-05: "Expecting" renamed to "In Transit"
-  { id: 'in-transit',   label: 'In Transit' },
-  // P-06: "Non-Serialised" renamed to "Accessories"
-  { id: 'accessories',  label: 'Accessories' },
+  { id: 'all',         label: 'All Terminals' },
+  { id: 'by-state',    label: 'By State' },
+  { id: 'by-location', label: 'By Location' },
+  { id: 'by-product',  label: 'By Product' },
+  { id: 'in-transit',  label: 'In Transit' },
+  { id: 'accessories', label: 'Accessories' },
 ]
 
 const ROLE_LABELS = {
-  admin:           'Admin',
-  supply_planner:  'Supply Planner',
-  warehouse_user:  'Warehouse User',
-  repair_centre:   'Repair Centre',
-  supplier:        'Supplier',
-  demand_planner:  'Demand Planner',
+  admin:               'Admin',
+  supply_planner:      'Supply Planner',
+  warehouse_user:      'Warehouse User',
+  repair_centre:       'Repair Centre',
+  supplier:            'Supplier',
+  demand_planner:      'Demand Planner',
+  inbound_specialist:  'Inbound Specialist',
+  outbound_specialist: 'Outbound Specialist',
+  rma_manager:         'RMA Manager',
+  senior_management:   'Senior Management',
 }
-
 
 function SubTabBar({ tabs, active, onChange }) {
   return (
-    <div style={{ display: 'flex', borderBottom: '1px solid var(--border-1)' }}>
+    <div style={{ display: 'flex', borderBottom: '1px solid var(--border-1)', flexWrap: 'wrap' }}>
       {tabs.map((tab) => (
         <button
           key={tab.id}
@@ -114,19 +162,183 @@ function SubTabBar({ tabs, active, onChange }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+
+const SIDEBAR_EXPANDED = 220
+const SIDEBAR_COLLAPSED = 56
+
+function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onSearchQuery, onSearchSubmit, collapsed, onToggleCollapse }) {
+  const visibleItems = NAV_ITEMS.filter(item => isNavVisible(item.id, roles))
+  const inputRef = useRef(null)
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') onSearchSubmit()
+  }
+
+  return (
+    <nav
+      className="e2o-sidebar"
+      style={{
+        width: collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED,
+        minWidth: collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED,
+        transition: 'width 0.2s ease, min-width 0.2s ease',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '8px 0',
+        flexShrink: 0,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Toggle button */}
+      <button
+        onClick={onToggleCollapse}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-end',
+          padding: '6px 10px', border: 'none', background: 'transparent',
+          cursor: 'pointer', color: 'rgba(255,255,255,0.5)',
+          fontSize: 16, lineHeight: 1, flexShrink: 0,
+          transition: 'color 0.15s',
+          marginBottom: 4,
+        }}
+        onMouseOver={e => e.currentTarget.style.color = 'rgba(255,255,255,0.9)'}
+        onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+      >
+        {collapsed ? '›' : '‹'}
+      </button>
+
+      {/* Search box */}
+      {!collapsed && (
+        <div style={{ padding: '0 10px', marginBottom: 8, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: 6, overflow: 'hidden' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Search…"
+              value={searchQuery}
+              onChange={e => onSearchQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                color: '#fff', fontSize: 12, padding: '6px 8px',
+                '::placeholder': { color: 'rgba(255,255,255,0.4)' },
+              }}
+            />
+            <button
+              onClick={onSearchSubmit}
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'rgba(255,255,255,0.5)', padding: '6px 8px', fontSize: 13, lineHeight: 1,
+              }}
+            >
+              ⌕
+            </button>
+          </div>
+        </div>
+      )}
+      {collapsed && (
+        <button
+          onClick={() => { onToggleCollapse(); setTimeout(() => inputRef.current?.focus(), 250) }}
+          title="Search"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 6px 8px', padding: '8px', borderRadius: 6,
+            border: 'none', background: 'transparent', cursor: 'pointer',
+            color: 'rgba(255,255,255,0.5)', fontSize: 16,
+          }}
+        >
+          ⌕
+        </button>
+      )}
+
+      {/* Nav items */}
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column', gap: 2, padding: '0 6px' }}>
+        {visibleItems.map((item) => {
+          const isActive = activeNav === item.id
+          const showBadge = item.id === 'alerts' && alertSummary.total > 0
+          return (
+            <button
+              key={item.id}
+              title={collapsed ? item.label : undefined}
+              onClick={() => onNavChange(item.id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: collapsed ? '10px 0' : '9px 10px',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                borderRadius: 6,
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'background 0.15s, color 0.15s',
+                background: isActive ? 'rgba(255,255,255,0.15)' : 'transparent',
+                borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
+                color: isActive ? '#fff' : 'rgba(255,255,255,0.7)',
+                fontWeight: isActive ? 600 : 400,
+                fontSize: 13,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                position: 'relative',
+                flexShrink: 0,
+              }}
+              onMouseOver={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+              onMouseOut={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
+            >
+              <span style={{ fontSize: 17, lineHeight: 1, flexShrink: 0 }}>{item.icon}</span>
+              {!collapsed && <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>}
+              {showBadge && !collapsed && (
+                <span style={{
+                  background: alertSummary.critical > 0 ? '#dc2626' : '#f59e0b',
+                  color: '#fff', borderRadius: 9999, fontSize: 9, fontWeight: 700,
+                  minWidth: 16, height: 16, lineHeight: '16px', textAlign: 'center',
+                  padding: '0 4px', flexShrink: 0,
+                }}>
+                  {alertSummary.total > 99 ? '99+' : alertSummary.total}
+                </span>
+              )}
+              {showBadge && collapsed && (
+                <span style={{
+                  position: 'absolute', top: 4, right: 4,
+                  background: alertSummary.critical > 0 ? '#dc2626' : '#f59e0b',
+                  color: '#fff', borderRadius: 9999, fontSize: 8, fontWeight: 700,
+                  width: 14, height: 14, lineHeight: '14px', textAlign: 'center',
+                }}>
+                  {alertSummary.total > 99 ? '!' : alertSummary.total}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main DashboardPage
+// ---------------------------------------------------------------------------
+
 export default function DashboardPage({ auth, setAuth }) {
   const navigate = useNavigate()
-  const [activeNav, setActiveNav] = useState(() => sessionStorage.getItem('dash_nav') || 'dashboard')
+  const [activeNav, setActiveNav]         = useState(() => sessionStorage.getItem('dash_nav') || 'dashboard')
   const [activeAdminTab, setActiveAdminTab] = useState(() => sessionStorage.getItem('dash_admin_tab') || 'locations')
-  const [activeInvTab, setActiveInvTab] = useState(() => sessionStorage.getItem('dash_inv_tab') || 'all')
+  const [activeInvTab, setActiveInvTab]   = useState(() => sessionStorage.getItem('dash_inv_tab') || 'all')
   const [activeReturnsTab, setActiveReturnsTab] = useState(() => sessionStorage.getItem('dash_returns_tab') || 'return-orders')
   const [activeReturnDetail, setActiveReturnDetail] = useState(null)
   const [activeRepairDetail, setActiveRepairDetail] = useState(null)
   const [activeWarehouseTab, setActiveWarehouseTab] = useState(() => sessionStorage.getItem('dash_warehouse_tab') || 'state-update')
-  const [alertSummary, setAlertSummary] = useState({ total: 0, critical: 0, urgent: 0, normal: 0 })
+  const [alertSummary, setAlertSummary]   = useState({ total: 0, critical: 0, urgent: 0, normal: 0 })
+  const [collapsed, setCollapsed]         = useState(() => localStorage.getItem('sidebar_collapsed') === 'true')
+  const [searchQuery, setSearchQuery]     = useState('')
+  const [searchTerm, setSearchTerm]       = useState('')
+
   const username  = auth?.username || localStorage.getItem('username') || 'User'
   const role      = auth?.role     || localStorage.getItem('role')     || ''
-  const roleLabel = ROLE_LABELS[role] || role
+  const rolesRaw  = auth?.roles    || (() => { try { return JSON.parse(localStorage.getItem('roles') || '[]') } catch { return [] } })()
+  const roles     = rolesRaw.length > 0 ? rolesRaw : [role]
+  const roleLabel = roles.map(r => ROLE_LABELS[r] || r).join(', ')
 
   useEffect(() => {
     function fetchSummary() {
@@ -166,12 +378,34 @@ export default function DashboardPage({ auth, setAuth }) {
     sessionStorage.setItem('dash_admin_tab', id)
   }
 
+  function handleToggleCollapse() {
+    const next = !collapsed
+    setCollapsed(next)
+    localStorage.setItem('sidebar_collapsed', String(next))
+  }
+
+  function handleSearchSubmit() {
+    if (!searchQuery.trim()) return
+    setSearchTerm(searchQuery.trim())
+    setActiveNav('search')
+    sessionStorage.setItem('dash_nav', 'search')
+  }
+
   function renderContent() {
+    if (activeNav === 'search') {
+      return (
+        <SearchResultsPage
+          term={searchTerm}
+          onNavigate={handleNavigate}
+          onClearSearch={() => { setSearchQuery(''); setSearchTerm('') }}
+        />
+      )
+    }
+
     if (activeNav === 'dashboard') {
       return <DashboardHome username={username} roleLabel={roleLabel} onNavigate={handleNavigate} />
     }
 
-    // P-04: Merged Admin (was Master Data + Admin)
     if (activeNav === 'admin') {
       return (
         <div className="flex flex-col h-full">
@@ -180,18 +414,21 @@ export default function DashboardPage({ auth, setAuth }) {
             <SubTabBar tabs={ADMIN_TABS} active={activeAdminTab} onChange={handleAdminTabChange} />
           </div>
           <div className="flex-1">
-            {activeAdminTab === 'locations' && <LocationsPage role={role} />}
-            {activeAdminTab === 'suppliers' && <SuppliersPage role={role} />}
-            {activeAdminTab === 'products'  && <ProductsPage  role={role} />}
-            {activeAdminTab === 'customers' && <CustomersPage role={role} />}
-            {activeAdminTab === 'users'     && <UsersPage role={role} currentUsername={username} />}
+            {activeAdminTab === 'locations'     && <LocationsPage role={role} />}
+            {activeAdminTab === 'suppliers'     && <SuppliersPage role={role} />}
+            {activeAdminTab === 'products'      && <ProductsPage  role={role} />}
+            {activeAdminTab === 'customers'     && <CustomersPage role={role} />}
+            {activeAdminTab === 'users'         && <UsersPage role={role} currentUsername={username} />}
             {activeAdminTab === 'states'        && <StatesPage role={role} />}
             {activeAdminTab === 'calendars'     && <BusinessCalendarPage role={role} />}
             {activeAdminTab === 'cost-master'   && <CostMasterPage role={role} />}
             {activeAdminTab === 'exchange-rates'&& <ExchangeRatesPage role={role} />}
             {activeAdminTab === 'claim-types'   && <ClaimTypesPage role={role} />}
-            {activeAdminTab === 'alert-rules'   && <AlertRulesPage />}
-            {activeAdminTab === 'upload'        && <ExcelUploadPage />}
+            {activeAdminTab === 'alert-rules'      && <AlertRulesPage />}
+            {activeAdminTab === 'system-config'    && <SystemConfigPage />}
+            {activeAdminTab === 'network-design'   && <NetworkDesignPage role={role} />}
+            {activeAdminTab === 'firmware'         && <FirmwarePage role={role} />}
+            {activeAdminTab === 'upload'           && <ExcelUploadPage />}
           </div>
         </div>
       )
@@ -270,16 +507,13 @@ export default function DashboardPage({ auth, setAuth }) {
             {activeInvTab === 'by-state'    && <ByStatePage      role={role} />}
             {activeInvTab === 'by-location' && <ByLocationPage   role={role} />}
             {activeInvTab === 'by-product'  && <ByProductPage    role={role} />}
-            {/* P-05: In Transit tab (was Expecting) — shows all 3 transit states */}
             {activeInvTab === 'in-transit'  && <InTransitPage    role={role} />}
-            {/* P-06: Accessories tab (was Non-Serialised) */}
             {activeInvTab === 'accessories' && <NonSerialisedPage role={role} />}
           </div>
         </div>
       )
     }
 
-    // P-03: Warehouse Tasks (Warehouse + Upload merged)
     if (activeNav === 'warehouse-tasks') {
       return (
         <div className="flex flex-col h-full">
@@ -387,27 +621,17 @@ export default function DashboardPage({ auth, setAuth }) {
       </header>
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Sidebar */}
-        <nav className="e2o-sidebar" style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 64, padding: '16px 8px', flexShrink: 0 }}>
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              title={item.label}
-              onClick={() => handleNavChange(item.id)}
-              style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: 2, padding: '10px 4px', borderRadius: 'var(--radius-sm)',
-                border: 'none', cursor: 'pointer', transition: 'var(--transition)',
-                fontSize: 9, fontWeight: 'var(--fw-medium)', lineHeight: 1.3, textAlign: 'center',
-                color: activeNav === item.id ? '#fff' : 'rgba(255,255,255,0.6)',
-                background: activeNav === item.id ? 'var(--cadet-dark)' : 'transparent',
-              }}
-            >
-              <span style={{ fontSize: 18, lineHeight: 1 }}>{item.icon}</span>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
+        <Sidebar
+          activeNav={activeNav}
+          onNavChange={handleNavChange}
+          roles={roles}
+          alertSummary={alertSummary}
+          searchQuery={searchQuery}
+          onSearchQuery={setSearchQuery}
+          onSearchSubmit={handleSearchSubmit}
+          collapsed={collapsed}
+          onToggleCollapse={handleToggleCollapse}
+        />
 
         {/* Main Content */}
         <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>

@@ -121,6 +121,8 @@ class Product(Base):
     # Product image
     image_data = Column(LargeBinary, nullable=True)
     image_content_type = Column(Text, nullable=True)
+    # Phase 3B — Firmware
+    latest_firmware_id = Column(Integer, ForeignKey("firmware.id"), nullable=True)
 
 
 class StateValidLocationType(Base):
@@ -168,6 +170,8 @@ class SerialNumber(Base):
     iccid = Column(Text)
     eid = Column(Text)
     key_id = Column(Text)
+    firmware_id = Column(Integer, ForeignKey("firmware.id"), nullable=True)
+    firmware_applied_at = Column(TIMESTAMP, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     current_state = relationship("TerminalState")
     current_location = relationship("Location")
@@ -801,3 +805,269 @@ class Alert(Base):
     product = relationship("Product")
     location = relationship("Location")
     acknowledged_by = relationship("User")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3A — RBAC: multi-role, location scoping, region scoping
+# ---------------------------------------------------------------------------
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+    user_id    = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    role_code  = Column(Text, nullable=False, primary_key=True)
+    assigned_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    user = relationship("User")
+
+
+class UserLocation(Base):
+    __tablename__ = "user_locations"
+    user_id     = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    location_id = Column(Integer, ForeignKey("locations.id"), primary_key=True)
+    user     = relationship("User")
+    location = relationship("Location")
+
+
+class UserRegion(Base):
+    __tablename__ = "user_regions"
+    user_id   = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    region_id = Column(Integer, ForeignKey("regions.id"), primary_key=True)
+    user   = relationship("User")
+    region = relationship("Region")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3A — System Config
+# ---------------------------------------------------------------------------
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    config_key          = Column(Text, nullable=False, unique=True)
+    label               = Column(Text, nullable=False)
+    description         = Column(Text)
+    data_type           = Column(Text, nullable=False)   # string|integer|boolean|decimal
+    current_value       = Column(Text)
+    default_value       = Column(Text)
+    updated_at          = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_by_user_id  = Column(Integer, ForeignKey("users.id"))
+    updated_by          = relationship("User")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B — Regions & Countries
+# ---------------------------------------------------------------------------
+
+class Region(Base):
+    __tablename__ = "regions"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    region_code = Column(Text, nullable=False, unique=True)
+    region_name = Column(Text, nullable=False)
+    active      = Column(Integer, nullable=False, default=1)
+
+
+class Country(Base):
+    __tablename__ = "countries"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    country_code = Column(Text, nullable=False, unique=True)
+    country_name = Column(Text, nullable=False)
+    region_id    = Column(Integer, ForeignKey("regions.id"), nullable=False)
+    serviced     = Column(Integer, nullable=False, default=0)
+    activated_at = Column(TIMESTAMP)
+    region = relationship("Region")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B — Network Design
+# ---------------------------------------------------------------------------
+
+class NetworkVersion(Base):
+    __tablename__ = "network_versions"
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    version_name         = Column(Text, nullable=False)
+    version_type         = Column(Text, nullable=False)   # baseline | simulation
+    reference_number     = Column(Text)
+    effective_date       = Column(Text)
+    committed_at         = Column(TIMESTAMP)
+    committed_by_user_id = Column(Integer, ForeignKey("users.id"))
+    notes                = Column(Text)
+    created_at           = Column(TIMESTAMP, server_default=func.current_timestamp())
+    committed_by = relationship("User")
+    flows        = relationship("SupplyFlow", back_populates="version", cascade="all, delete-orphan")
+
+
+class SupplyFlow(Base):
+    __tablename__ = "supply_flows"
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    network_version_id = Column(Integer, ForeignKey("network_versions.id"), nullable=False)
+    from_location_id   = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    to_location_id     = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    flow_type          = Column(Text, nullable=False)
+    active             = Column(Integer, nullable=False, default=1)
+    version       = relationship("NetworkVersion", back_populates="flows")
+    from_location = relationship("Location", foreign_keys=[from_location_id])
+    to_location   = relationship("Location", foreign_keys=[to_location_id])
+    constraints   = relationship("FlowConstraint", back_populates="flow", cascade="all, delete-orphan")
+
+
+class FlowConstraint(Base):
+    __tablename__ = "flow_constraints"
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    flow_id            = Column(Integer, ForeignKey("supply_flows.id"), nullable=False)
+    product_id         = Column(Integer, ForeignKey("products.id"))
+    replenishment_type = Column(Text)
+    valid_from         = Column(Text)
+    valid_to           = Column(Text)
+    flow    = relationship("SupplyFlow", back_populates="constraints")
+    product = relationship("Product")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B — Firmware
+# ---------------------------------------------------------------------------
+
+class Firmware(Base):
+    __tablename__ = "firmware"
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    firmware_name  = Column(Text, nullable=False)
+    version        = Column(Text, nullable=False)
+    release_number = Column(Text)
+    release_date   = Column(Text)
+    release_hour   = Column(Text)
+    key_used       = Column(Text)
+    file_path      = Column(Text)
+    created_at     = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B — Product Pricing & Alternatives
+# ---------------------------------------------------------------------------
+
+class ProductPricing(Base):
+    __tablename__ = "product_pricing"
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    product_id         = Column(Integer, ForeignKey("products.id"), nullable=False)
+    region_id          = Column(Integer, ForeignKey("regions.id"))
+    country_id         = Column(Integer, ForeignKey("countries.id"))
+    sell_price         = Column(Float)
+    rental_price_month = Column(Float)
+    currency           = Column(Text, nullable=False)
+    effective_date     = Column(Text)
+    product = relationship("Product")
+    region  = relationship("Region")
+    country = relationship("Country")
+
+
+class ProductAlternative(Base):
+    __tablename__ = "product_alternatives"
+    id                     = Column(Integer, primary_key=True, autoincrement=True)
+    product_id             = Column(Integer, ForeignKey("products.id"), nullable=False)
+    alternative_product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    sequence               = Column(Integer, nullable=False, default=1)
+    product     = relationship("Product", foreign_keys=[product_id])
+    alternative = relationship("Product", foreign_keys=[alternative_product_id])
+
+
+# ---------------------------------------------------------------------------
+# Phase 3C — ATP Rules & Customer Segments
+# ---------------------------------------------------------------------------
+
+class CustomerSegment(Base):
+    __tablename__ = "customer_segments"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    segment_code = Column(Text, nullable=False, unique=True)
+    segment_name = Column(Text, nullable=False)
+    priority     = Column(Integer, nullable=False, default=99)
+
+
+class ATPRule(Base):
+    __tablename__ = "atp_rules"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    region_id   = Column(Integer, ForeignKey("regions.id"))
+    segment_id  = Column(Integer, ForeignKey("customer_segments.id"))
+    rule_key    = Column(Text, nullable=False)
+    rule_value  = Column(Text, nullable=False)
+    description = Column(Text)
+    region  = relationship("Region")
+    segment = relationship("CustomerSegment")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3E — Serial Import Batches & Repair Documents
+# ---------------------------------------------------------------------------
+
+class SerialImportBatch(Base):
+    __tablename__ = "serial_import_batches"
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    po_id               = Column(Integer, ForeignKey("purchase_orders.id"), nullable=False)
+    po_line_id          = Column(Integer, ForeignKey("purchase_order_lines.id"), nullable=False)
+    shipment_reference  = Column(Text, nullable=False)
+    source_type         = Column(Text, nullable=False)   # manual | ai_document | excel
+    document_file_path  = Column(Text)
+    status              = Column(Text, nullable=False, default="Pending")
+    confirmed_at        = Column(TIMESTAMP)
+    imported_by_user_id = Column(Integer, ForeignKey("users.id"))
+    imported_at         = Column(TIMESTAMP, server_default=func.current_timestamp())
+    po          = relationship("PurchaseOrder")
+    imported_by = relationship("User")
+
+
+class RepairDocument(Base):
+    __tablename__ = "repair_documents"
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    rr_order_id         = Column(Integer, ForeignKey("repair_rework_orders.id"), nullable=False)
+    file_name           = Column(Text, nullable=False)
+    file_path           = Column(Text, nullable=False)
+    file_size_bytes     = Column(Integer)
+    uploaded_at         = Column(TIMESTAMP, server_default=func.current_timestamp())
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id"))
+    rr_order    = relationship("RepairReworkOrder")
+    uploaded_by = relationship("User")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3F — AI Conversations & Messages
+# ---------------------------------------------------------------------------
+
+class AIConversation(Base):
+    __tablename__ = "ai_conversations"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    session_id   = Column(Text, nullable=False, unique=True)
+    page_context = Column(Text)
+    started_at   = Column(TIMESTAMP, server_default=func.current_timestamp())
+    ended_at     = Column(TIMESTAMP)
+    user     = relationship("User")
+    messages = relationship("AIMessage", back_populates="conversation", cascade="all, delete-orphan")
+
+
+class AIMessage(Base):
+    __tablename__ = "ai_messages"
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(Integer, ForeignKey("ai_conversations.id"), nullable=False)
+    role            = Column(Text, nullable=False)   # user | assistant
+    content         = Column(Text, nullable=False)
+    created_at      = Column(TIMESTAMP, server_default=func.current_timestamp())
+    conversation = relationship("AIConversation", back_populates="messages")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B — Product BOM Components & Country Applicability
+# ---------------------------------------------------------------------------
+
+class ProductBomComponent(Base):
+    __tablename__ = "product_bom_components"
+    id                      = Column(Integer, primary_key=True, autoincrement=True)
+    parent_product_id       = Column(Integer, ForeignKey("products.id"), nullable=False)
+    component_product_id    = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity                = Column(Integer, nullable=False, default=1)
+    assembly_leadtime_value = Column(Integer, nullable=True)
+    assembly_leadtime_unit  = Column(Text, nullable=True)   # hours | days
+    parent    = relationship("Product", foreign_keys=[parent_product_id])
+    component = relationship("Product", foreign_keys=[component_product_id])
+
+
+class ProductCountry(Base):
+    __tablename__ = "product_countries"
+    product_code = Column(Text, primary_key=True)
+    country_code = Column(Text, primary_key=True)
+    active       = Column(Integer, nullable=False, default=1)

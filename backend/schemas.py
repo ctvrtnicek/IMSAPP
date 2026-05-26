@@ -9,6 +9,7 @@ class Token(BaseModel):
     token_type: str
     role: str
     username: str
+    roles: List[str] = []
 
 
 class UserOut(BaseModel):

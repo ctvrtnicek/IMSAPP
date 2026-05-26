@@ -157,6 +157,17 @@ body { margin: 0; font-weight: var(--fw-regular); }
 .e2o-sidebar {
   background: var(--carbon);
   color: var(--fg-inverse);
+  overflow: hidden;
+}
+
+/* Sidebar search input placeholder */
+.e2o-sidebar input::placeholder {
+  color: rgba(255,255,255,0.35);
+}
+
+/* Smooth sidebar width transition */
+.e2o-sidebar * {
+  transition: none; /* child transitions handled per-element */
 }
 
 .e2o-nav-item {

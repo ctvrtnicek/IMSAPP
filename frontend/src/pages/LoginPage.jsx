@@ -23,7 +23,7 @@ export default function LoginPage({ setAuth }) {
     setLoading(true)
     try {
       const data = await login(username, password)
-      setAuth({ token: data.access_token, role: data.role, username: data.username })
+      setAuth({ token: data.access_token, role: data.role, roles: data.roles || [data.role], username: data.username })
       navigate('/dashboard', { replace: true })
     } catch {
       setError('Invalid username or password')

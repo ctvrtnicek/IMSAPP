@@ -11,9 +11,12 @@ import WorkOrderDetailPage from './pages/warehouse/WorkOrderDetailPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 
 function getInitialAuth() {
+  const rolesRaw = localStorage.getItem('roles')
+  const role = localStorage.getItem('role')
   return {
     token: localStorage.getItem('token') || null,
-    role: localStorage.getItem('role') || null,
+    role: role || null,
+    roles: rolesRaw ? JSON.parse(rolesRaw) : (role ? [role] : []),
     username: localStorage.getItem('username') || null,
   }
 }
@@ -25,13 +28,15 @@ export default function App() {
     if (data) {
       localStorage.setItem('token', data.token)
       localStorage.setItem('role', data.role)
+      localStorage.setItem('roles', JSON.stringify(data.roles || [data.role]))
       localStorage.setItem('username', data.username)
     } else {
       localStorage.removeItem('token')
       localStorage.removeItem('role')
+      localStorage.removeItem('roles')
       localStorage.removeItem('username')
     }
-    setAuth(data || { token: null, role: null, username: null })
+    setAuth(data || { token: null, role: null, roles: [], username: null })
   }
 
   return (

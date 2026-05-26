@@ -6,64 +6,95 @@ import api from '../../api/auth.js'
 // Constants
 // ---------------------------------------------------------------------------
 
-const ROLES = [
-  { value: 'admin',           label: 'Admin' },
-  { value: 'supply_planner',  label: 'Supply Planner' },
-  { value: 'demand_planner',  label: 'Demand Planner' },
-  { value: 'warehouse_user',  label: 'Warehouse User' },
-  { value: 'repair_centre',   label: 'Repair Centre' },
-  { value: 'supplier',        label: 'Supplier' },
+const ALL_ROLES = [
+  { value: 'admin',               label: 'Admin',               type: 'internal' },
+  { value: 'supply_planner',      label: 'Supply Planner',      type: 'internal' },
+  { value: 'demand_planner',      label: 'Demand Planner',      type: 'internal' },
+  { value: 'warehouse_user',      label: 'Warehouse User',      type: 'internal' },
+  { value: 'inbound_specialist',  label: 'Inbound Specialist',  type: 'internal' },
+  { value: 'outbound_specialist', label: 'Outbound Specialist', type: 'internal' },
+  { value: 'rma_manager',         label: 'RMA Manager',         type: 'internal' },
+  { value: 'senior_management',   label: 'Senior Management',   type: 'internal' },
+  { value: 'repair_centre',       label: 'Repair Centre',       type: 'external' },
+  { value: 'supplier',            label: 'Supplier User',       type: 'external' },
 ]
 
-const ROLE_BADGE = {
-  admin:           { bg: '#fee2e2', text: '#991b1b' },
-  supply_planner:  { bg: '#dbeafe', text: '#1e40af' },
-  demand_planner:  { bg: '#e0e7ff', text: '#3730a3' },
-  warehouse_user:  { bg: '#dcfce7', text: '#166534' },
-  repair_centre:   { bg: '#f3e8ff', text: '#6b21a8' },
-  supplier:        { bg: '#ffedd5', text: '#9a3412' },
+const ROLE_BADGE_COLORS = {
+  admin:               { bg: '#fee2e2', text: '#991b1b' },
+  supply_planner:      { bg: '#dbeafe', text: '#1e40af' },
+  demand_planner:      { bg: '#e0e7ff', text: '#3730a3' },
+  warehouse_user:      { bg: '#dcfce7', text: '#166534' },
+  repair_centre:       { bg: '#f3e8ff', text: '#6b21a8' },
+  supplier:            { bg: '#ffedd5', text: '#9a3412' },
+  inbound_specialist:  { bg: '#d1fae5', text: '#065f46' },
+  outbound_specialist: { bg: '#fef3c7', text: '#92400e' },
+  rma_manager:         { bg: '#fce7f3', text: '#9d174d' },
+  senior_management:   { bg: '#e0f2fe', text: '#075985' },
 }
 
-const EMPTY_CREATE_FORM = {
-  username: '',
-  password: '',
-  email: '',
-  role: 'warehouse_user',
-  default_location_id: '',
-}
-
-const EMPTY_EDIT_FORM = {
-  email: '',
-  role: 'warehouse_user',
-  default_location_id: '',
-  active: 1,
-}
-
-const EMPTY_RESET_FORM = {
-  new_password: '',
-  confirm_password: '',
-}
+// PRD Appendix A — Roles & Rights Matrix
+const RIGHTS_MATRIX = [
+  { feature: 'Admin — Master Data + System Config',      admin:'R/W', supply_planner:'R',   demand_planner:'—',   warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'—' },
+  { feature: 'Admin — Master Data Supply Chain',         admin:'R/W', supply_planner:'R/W', demand_planner:'—',   warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'—' },
+  { feature: 'Admin — Upload',                           admin:'R/W', supply_planner:'R/W', demand_planner:'—',   warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'—' },
+  { feature: 'Network Design (R3)',                      admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'—' },
+  { feature: 'Inventory — Terminal Serial Numbers',      admin:'R/W', supply_planner:'R/W', demand_planner:'R/W', warehouse_user:'R', supplier:'R', repair_centre:'R', inbound_specialist:'R', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
+  { feature: 'Purchase Orders — Create, Issue & Cancel', admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'R', repair_centre:'R', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
+  { feature: 'Purchase Orders — Import Serials',         admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'R/W', repair_centre:'R/W', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
+  { feature: 'Purchase Orders — Receive',                admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'R/W', repair_centre:'R/W', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R/W', senior_management:'R' },
+  { feature: 'Outbound Orders — Create, Issue & Cancel', admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
+  { feature: 'Outbound Orders — Allocate Serials',       admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
+  { feature: 'Outbound Orders — Ship & Receive',         admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
+  { feature: 'Distribution Orders — Create, Issue',      admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'—', repair_centre:'—', inbound_specialist:'R/W', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
+  { feature: 'Distribution Orders — Allocate & Ship',    admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'—', repair_centre:'—', inbound_specialist:'R/W', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
+  { feature: 'Warehouse Tasks & Work Orders',            admin:'R/W', supply_planner:'R',   demand_planner:'R',   warehouse_user:'R/W', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'—' },
+  { feature: 'Returns',                                  admin:'R/W', supply_planner:'R',   demand_planner:'R',   warehouse_user:'R/W', supplier:'—', repair_centre:'—', inbound_specialist:'R/W', outbound_specialist:'R/W', rma_manager:'R/W', senior_management:'R' },
+  { feature: 'Repairs — General',                        admin:'R/W', supply_planner:'R',   demand_planner:'R',   warehouse_user:'R/W', supplier:'R/W', repair_centre:'R/W', inbound_specialist:'R/W', outbound_specialist:'R/W', rma_manager:'R/W', senior_management:'R' },
+  { feature: 'Demand Signals & Forecast',                admin:'R/W', supply_planner:'R/W', demand_planner:'R/W', warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'R', rma_manager:'—', senior_management:'R' },
+  { feature: 'Supply — Stock Targets & Replenishment',   admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'R' },
+  { feature: 'Analytics',                                admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'R' },
+]
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Helpers
 // ---------------------------------------------------------------------------
 
-function Modal({ title, onClose, children }) {
+function RoleBadge({ roleCode }) {
+  const meta  = ALL_ROLES.find(r => r.value === roleCode)
+  const color = ROLE_BADGE_COLORS[roleCode] || { bg: '#f3f4f6', text: '#374151' }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black bg-opacity-40"
-        onClick={onClose}
-      />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6 z-10">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-          >
-            ×
-          </button>
+    <span style={{ background: color.bg, color: color.text, borderRadius: 9999, padding: '2px 7px', fontSize: 11, fontWeight: 600, display: 'inline-block', margin: '1px 2px' }}>
+      {meta?.label || roleCode}
+    </span>
+  )
+}
+
+function StatusBadge({ active }) {
+  return active ? (
+    <span style={{ background: '#dcfce7', color: '#166534', borderRadius: 9999, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>Active</span>
+  ) : (
+    <span style={{ background: '#f3f4f6', color: '#6b7280', borderRadius: 9999, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>Inactive</span>
+  )
+}
+
+function RightCell({ value }) {
+  const color = value === 'R/W' ? '#166534' : value === 'R' ? '#1e40af' : '#9ca3af'
+  const bg    = value === 'R/W' ? '#dcfce7' : value === 'R' ? '#dbeafe' : 'transparent'
+  return (
+    <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 11, fontWeight: value !== '—' ? 600 : 400, color, background: bg }}>
+      {value}
+    </td>
+  )
+}
+
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={onClose} />
+      <div style={{ position: 'relative', background: '#fff', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', width: '100%', maxWidth: wide ? 660 : 480, margin: '0 1rem', padding: '1.5rem', zIndex: 10, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: '#1f2937' }}>{title}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af', lineHeight: 1 }}>×</button>
         </div>
         {children}
       </div>
@@ -71,93 +102,108 @@ function Modal({ title, onClose, children }) {
   )
 }
 
+const INPUT = { width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '7px 11px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }
+const BTN_PRIMARY = { background: '#1A6B7B', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }
+const BTN_SECONDARY = { background: 'transparent', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 18px', fontSize: 13, cursor: 'pointer' }
+
 function FormRow({ label, required, children }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
-        {label}
-        {required && <span className="text-red-400 ml-0.5">*</span>}
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>
+        {label}{required && <span style={{ color: '#f87171', marginLeft: 2 }}>*</span>}
       </label>
       {children}
     </div>
   )
 }
 
-const INPUT_CLS =
-  'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400'
-
-function RoleBadge({ role }) {
-  const style = ROLE_BADGE[role] || { bg: '#f3f4f6', text: '#374151' }
-  const label = ROLES.find((r) => r.value === role)?.label || role
+function MultiCheckbox({ label, options, selected, onChange }) {
+  function toggle(val) {
+    onChange(selected.includes(val) ? selected.filter(v => v !== val) : [...selected, val])
+  }
   return (
-    <span
-      className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
-      style={{ backgroundColor: style.bg, color: style.text }}
-    >
-      {label}
-    </span>
+    <div>
+      <p style={{ fontSize: 12, fontWeight: 500, color: '#6b7280', marginBottom: 6 }}>{label}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {options.map(opt => (
+          <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', background: selected.includes(opt.value) ? '#e0f2fe' : '#f9fafb', border: `1px solid ${selected.includes(opt.value) ? '#0284c7' : '#e5e7eb'}`, borderRadius: 6, padding: '4px 9px', userSelect: 'none' }}>
+            <input type="checkbox" checked={selected.includes(opt.value)} onChange={() => toggle(opt.value)} style={{ margin: 0 }} />
+            {opt.label}
+          </label>
+        ))}
+      </div>
+    </div>
   )
 }
 
-function StatusBadge({ active }) {
-  return active ? (
-    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-      Active
-    </span>
-  ) : (
-    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
-      Inactive
-    </span>
+function MultiSelect({ label, options, selected, onChange }) {
+  function toggle(id) {
+    onChange(selected.includes(id) ? selected.filter(v => v !== id) : [...selected, id])
+  }
+  return (
+    <div>
+      <p style={{ fontSize: 12, fontWeight: 500, color: '#6b7280', marginBottom: 6 }}>{label}</p>
+      <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, padding: 6 }}>
+        {options.length === 0 && <p style={{ fontSize: 12, color: '#9ca3af' }}>None available</p>}
+        {options.map(opt => (
+          <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', padding: '3px 4px', borderRadius: 4, background: selected.includes(opt.id) ? '#f0fdf4' : 'transparent' }}>
+            <input type="checkbox" checked={selected.includes(opt.id)} onChange={() => toggle(opt.id)} style={{ margin: 0 }} />
+            {opt.code} — {opt.name}
+          </label>
+        ))}
+      </div>
+    </div>
   )
 }
 
-function InlineMessage({ success, error }) {
-  if (error)
-    return <p className="text-red-600 text-sm mt-2 p-2 bg-red-50 rounded-lg">{error}</p>
-  if (success)
-    return <p className="text-green-700 text-sm mt-2 p-2 bg-green-50 rounded-lg">{success}</p>
+function InlineMsg({ success, error }) {
+  if (error)   return <p style={{ color: '#dc2626', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#fef2f2', borderRadius: 6 }}>{error}</p>
+  if (success) return <p style={{ color: '#16a34a', fontSize: 13, marginTop: 8, padding: '8px 12px', background: '#f0fdf4', borderRadius: 6 }}>{success}</p>
   return null
 }
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+const PAGE_TABS = [
+  { id: 'users', label: 'Users' },
+  { id: 'roles', label: 'Roles & Rights' },
+]
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function UsersPage({ role, currentUsername }) {
-  // Access guard
   if (role !== 'admin') {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="bg-white rounded-2xl shadow p-8 text-center max-w-sm">
-          <p className="text-gray-500 text-sm">Access restricted to administrators.</p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
+        <p style={{ color: '#6b7280', fontSize: 14 }}>Access restricted to administrators.</p>
       </div>
     )
   }
 
+  const [activeTab, setActiveTab] = useState('users')
   const [users, setUsers] = useState([])
   const [locations, setLocations] = useState([])
+  const [regions, setRegions] = useState([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(null)
   const [showInactive, setShowInactive] = useState(false)
 
-  // Modal state
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showResetModal, setShowResetModal] = useState(false)
-
-  // Form state
-  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM)
-  const [editForm, setEditForm] = useState(EMPTY_EDIT_FORM)
-  const [resetForm, setResetForm] = useState(EMPTY_RESET_FORM)
-  const [selectedUserId, setSelectedUserId] = useState(null)
-
-  // Submission state
+  const [selectedUser, setSelectedUser] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [modalSuccess, setModalSuccess] = useState(null)
   const [modalError, setModalError] = useState(null)
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
+  // Form state
+  const [createForm, setCreateForm] = useState({ username: '', password: '', email: '', roles: ['warehouse_user'], location_ids: [], region_ids: [] })
+  const [editForm, setEditForm] = useState({ email: '', roles: [], location_ids: [], region_ids: [], active: 1 })
+  const [resetForm, setResetForm] = useState({ new_password: '', confirm_password: '' })
 
   async function fetchUsers() {
     setLoading(true)
@@ -172,483 +218,339 @@ export default function UsersPage({ role, currentUsername }) {
     }
   }
 
-  async function fetchLocations() {
-    try {
-      const res = await api.get('/locations')
-      setLocations(res.data)
-    } catch {
-      // Locations are optional — fail silently, dropdowns will just be empty
-    }
-  }
-
   useEffect(() => {
-    fetchLocations()
+    Promise.all([
+      api.get('/locations').then(r => setLocations(r.data)).catch(() => {}),
+      api.get('/users/meta/regions').then(r => setRegions(r.data)).catch(() => {}),
+    ])
   }, [])
 
-  useEffect(() => {
-    fetchUsers()
-  }, [showInactive])
+  useEffect(() => { fetchUsers() }, [showInactive])
 
-  // ── Modal helpers ──────────────────────────────────────────────────────────
+  function clearModal() { setModalSuccess(null); setModalError(null) }
 
-  function clearModalState() {
-    setModalSuccess(null)
-    setModalError(null)
+  function openCreate() {
+    setCreateForm({ username: '', password: '', email: '', roles: ['warehouse_user'], location_ids: [], region_ids: [] })
+    clearModal(); setShowCreateModal(true)
   }
 
-  function openCreateModal() {
-    setCreateForm(EMPTY_CREATE_FORM)
-    clearModalState()
-    setShowCreateModal(true)
-  }
-
-  function openEditModal(user) {
-    setSelectedUserId(user.id)
+  function openEdit(user) {
+    setSelectedUser(user)
     setEditForm({
       email: user.email || '',
-      role: user.role,
-      default_location_id: user.default_location_id ? String(user.default_location_id) : '',
+      roles: user.roles || [user.role],
+      location_ids: user.location_ids || [],
+      region_ids: user.region_ids || [],
       active: user.active,
     })
-    clearModalState()
-    setShowEditModal(true)
+    clearModal(); setShowEditModal(true)
   }
 
-  function openResetModal(user) {
-    setSelectedUserId(user.id)
-    setResetForm(EMPTY_RESET_FORM)
-    clearModalState()
-    setShowResetModal(true)
+  function openReset(user) {
+    setSelectedUser(user)
+    setResetForm({ new_password: '', confirm_password: '' })
+    clearModal(); setShowResetModal(true)
   }
-
-  // ── Handlers ───────────────────────────────────────────────────────────────
 
   async function handleCreate(e) {
     e.preventDefault()
-    setSubmitting(true)
-    setModalError(null)
-    setModalSuccess(null)
+    if (createForm.roles.length === 0) { setModalError('Please select at least one role.'); return }
+    setSubmitting(true); setModalError(null); setModalSuccess(null)
     try {
-      const payload = {
+      await createUser({
         username: createForm.username,
         password: createForm.password,
         email: createForm.email || null,
-        role: createForm.role,
-        default_location_id: createForm.default_location_id
-          ? parseInt(createForm.default_location_id)
-          : null,
-      }
-      await createUser(payload)
+        role: createForm.roles[0],
+        roles: createForm.roles,
+        location_ids: createForm.location_ids,
+        region_ids: createForm.region_ids,
+      })
       setModalSuccess('User created successfully.')
       await fetchUsers()
-      setTimeout(() => {
-        setShowCreateModal(false)
-        setModalSuccess(null)
-      }, 1200)
+      setTimeout(() => { setShowCreateModal(false); setModalSuccess(null) }, 1200)
     } catch (err) {
       setModalError(err?.response?.data?.detail || 'Failed to create user.')
-    } finally {
-      setSubmitting(false)
-    }
+    } finally { setSubmitting(false) }
   }
 
   async function handleEdit(e) {
     e.preventDefault()
-    setSubmitting(true)
-    setModalError(null)
-    setModalSuccess(null)
+    if (editForm.roles.length === 0) { setModalError('Please select at least one role.'); return }
+    setSubmitting(true); setModalError(null); setModalSuccess(null)
     try {
-      const payload = {
+      await updateUser(selectedUser.id, {
         email: editForm.email || null,
-        role: editForm.role,
-        default_location_id: editForm.default_location_id
-          ? parseInt(editForm.default_location_id)
-          : null,
+        role: editForm.roles[0],
+        roles: editForm.roles,
+        location_ids: editForm.location_ids,
+        region_ids: editForm.region_ids,
         active: editForm.active,
-      }
-      await updateUser(selectedUserId, payload)
+      })
       setModalSuccess('User updated successfully.')
       await fetchUsers()
-      setTimeout(() => {
-        setShowEditModal(false)
-        setModalSuccess(null)
-      }, 1200)
+      setTimeout(() => { setShowEditModal(false); setModalSuccess(null) }, 1200)
     } catch (err) {
       setModalError(err?.response?.data?.detail || 'Failed to update user.')
-    } finally {
-      setSubmitting(false)
-    }
+    } finally { setSubmitting(false) }
   }
 
-  async function handleResetPassword(e) {
+  async function handleReset(e) {
     e.preventDefault()
-    if (resetForm.new_password !== resetForm.confirm_password) {
-      setModalError('Passwords do not match.')
-      return
-    }
-    setSubmitting(true)
-    setModalError(null)
-    setModalSuccess(null)
+    if (resetForm.new_password !== resetForm.confirm_password) { setModalError('Passwords do not match.'); return }
+    setSubmitting(true); setModalError(null); setModalSuccess(null)
     try {
-      await resetPassword(selectedUserId, { new_password: resetForm.new_password })
+      await resetPassword(selectedUser.id, { new_password: resetForm.new_password })
       setModalSuccess('Password reset successfully.')
-      setTimeout(() => {
-        setShowResetModal(false)
-        setModalSuccess(null)
-      }, 1200)
+      setTimeout(() => { setShowResetModal(false); setModalSuccess(null) }, 1200)
     } catch (err) {
       setModalError(err?.response?.data?.detail || 'Failed to reset password.')
-    } finally {
-      setSubmitting(false)
-    }
+    } finally { setSubmitting(false) }
   }
 
   async function handleDeactivate(user) {
-    if (!confirm(`Deactivate user "${user.username}"? They will no longer be able to log in.`)) return
-    try {
-      await deactivateUser(user.id)
-      await fetchUsers()
-    } catch (err) {
-      alert(err?.response?.data?.detail || 'Failed to deactivate user.')
-    }
+    if (!confirm(`Deactivate "${user.username}"? They will no longer be able to log in.`)) return
+    try { await deactivateUser(user.id); await fetchUsers() }
+    catch (err) { alert(err?.response?.data?.detail || 'Failed to deactivate user.') }
   }
 
-  // ── Location dropdown helper ───────────────────────────────────────────────
+  // ---------------------------------------------------------------------------
+  // Roles & Rights matrix tab
+  // ---------------------------------------------------------------------------
 
-  function locationLabel(loc) {
-    return `${loc.code} – ${loc.name}`
+  const roleColumns = ALL_ROLES.map(r => r.value)
+
+  function renderRolesTab() {
+    return (
+      <div>
+        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+          Access rights per role across all IMS functional areas. R/W = Read/Write, R = Read only, — = No access.
+        </p>
+        <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+                <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', minWidth: 200 }}>Feature / Area</th>
+                {ALL_ROLES.map(r => (
+                  <th key={r.value} style={{ padding: '8px 6px', textAlign: 'center', fontWeight: 600, color: r.type === 'external' ? '#9a3412' : '#1e40af', minWidth: 80, fontSize: 11 }}>
+                    {r.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {RIGHTS_MATRIX.map((row, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f3f4f6', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                  <td style={{ padding: '6px 12px', color: '#374151', fontWeight: 500, fontSize: 12 }}>{row.feature}</td>
+                  {roleColumns.map(rc => (
+                    <RightCell key={rc} value={row[rc] || '—'} />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af', display: 'flex', gap: 16 }}>
+          <span><strong style={{ color: '#166534' }}>R/W</strong> = Read &amp; Write</span>
+          <span><strong style={{ color: '#1e40af' }}>R</strong> = Read only</span>
+          <span><strong style={{ color: '#9ca3af' }}>—</strong> = No access</span>
+        </div>
+      </div>
+    )
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ---------------------------------------------------------------------------
+  // Users tab
+  // ---------------------------------------------------------------------------
+
+  const activeLocations = locations.filter(l => l.active !== 0)
+
+  function renderUsersTab() {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#6b7280', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+            Show inactive users
+          </label>
+          <button onClick={openCreate} style={{ ...BTN_PRIMARY, padding: '7px 16px' }}>+ New User</button>
+        </div>
+
+        {fetchError && <p style={{ color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{fetchError}</p>}
+
+        <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Loading users…</div>
+          ) : users.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>No users found.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #f3f4f6', background: '#f8fafc' }}>
+                    {['Username','Email','Roles','Locations','Regions','Status','Created','Actions'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280', fontSize: 12 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map(user => {
+                    const isSelf = user.username === currentUsername
+                    return (
+                      <tr key={user.id} style={{ borderBottom: '1px solid #f9fafb' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1f2937' }}>
+                          {user.username}{isSelf && <span style={{ color: '#9ca3af', fontSize: 11, marginLeft: 4 }}>(you)</span>}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#6b7280' }}>{user.email || '—'}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                            {(user.roles || [user.role]).map(r => <RoleBadge key={r} roleCode={r} />)}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>
+                          {(user.locations || []).length > 0
+                            ? user.locations.map(l => l.code).join(', ')
+                            : '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>
+                          {(user.regions || []).length > 0
+                            ? user.regions.map(r => r.code).join(', ')
+                            : '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}><StatusBadge active={user.active} /></td>
+                        <td style={{ padding: '10px 12px', color: '#9ca3af', fontSize: 11 }}>{user.created_at?.slice(0,10) || '—'}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button onClick={() => openEdit(user)} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', color: '#374151' }}>Edit</button>
+                            <button onClick={() => openReset(user)} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #fcd34d', background: '#fff', cursor: 'pointer', color: '#92400e' }}>Reset PW</button>
+                            {user.active === 1 && !isSelf && (
+                              <button onClick={() => handleDeactivate(user)} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', cursor: 'pointer', color: '#b91c1c' }}>Deactivate</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800">Users &amp; Roles</h1>
-        <button
-          onClick={openCreateModal}
-          className="text-sm px-4 py-2 rounded-lg text-white font-medium transition hover:opacity-90"
-          style={{ backgroundColor: 'var(--cadet-dark)' }}
-        >
-          + New User
-        </button>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1f2937' }}>Users &amp; Roles</h1>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-400"
-          />
-          Show inactive users
-        </label>
+      {/* Tab bar */}
+      <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', marginBottom: 20, gap: 2 }}>
+        {PAGE_TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+            border: 'none', background: 'transparent',
+            color: activeTab === t.id ? '#1A6B7B' : '#6b7280',
+            borderBottom: activeTab === t.id ? '2px solid #1A6B7B' : '2px solid transparent',
+            marginBottom: -2,
+          }}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Error */}
-      {fetchError && (
-        <p className="text-red-500 text-sm">{fetchError}</p>
-      )}
+      {activeTab === 'users' ? renderUsersTab() : renderRolesTab()}
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow overflow-hidden">
-        {loading ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Loading users…</div>
-        ) : users.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">No users found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50 text-left">
-                  <th className="px-4 py-3 font-semibold text-gray-600">Username</th>
-                  <th className="px-4 py-3 font-semibold text-gray-600">Email</th>
-                  <th className="px-4 py-3 font-semibold text-gray-600">Role</th>
-                  <th className="px-4 py-3 font-semibold text-gray-600">Default Location</th>
-                  <th className="px-4 py-3 font-semibold text-gray-600">Status</th>
-                  <th className="px-4 py-3 font-semibold text-gray-600">Created</th>
-                  <th className="px-4 py-3 font-semibold text-gray-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => {
-                  const defaultLoc = locations.find(
-                    (l) => l.id === user.default_location_id,
-                  )
-                  const isSelf = user.username === currentUsername
-                  return (
-                    <tr
-                      key={user.id}
-                      className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-4 py-3 font-medium text-gray-800">
-                        {user.username}
-                        {isSelf && (
-                          <span className="ml-2 text-xs text-gray-400">(you)</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">{user.email || '—'}</td>
-                      <td className="px-4 py-3">
-                        <RoleBadge role={user.role} />
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {defaultLoc ? locationLabel(defaultLoc) : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge active={user.active} />
-                      </td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">
-                        {user.created_at
-                          ? user.created_at.slice(0, 10)
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => openEditModal(user)}
-                            className="text-xs px-2.5 py-1 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => openResetModal(user)}
-                            className="text-xs px-2.5 py-1 rounded-md border border-amber-300 text-amber-700 hover:bg-amber-50 transition"
-                          >
-                            Reset Password
-                          </button>
-                          {user.active === 1 && !isSelf && (
-                            <button
-                              onClick={() => handleDeactivate(user)}
-                              className="text-xs px-2.5 py-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition"
-                            >
-                              Deactivate
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* ── Create User Modal ──────────────────────────────────────────────── */}
+      {/* Create Modal */}
       {showCreateModal && (
-        <Modal title="New User" onClose={() => setShowCreateModal(false)}>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <FormRow label="Username" required>
-              <input
-                className={INPUT_CLS}
-                value={createForm.username}
-                onChange={(e) => setCreateForm((f) => ({ ...f, username: e.target.value }))}
-                required
-                placeholder="e.g. jsmith"
-                autoComplete="off"
+        <Modal title="New User" onClose={() => setShowCreateModal(false)} wide>
+          <form onSubmit={handleCreate}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <FormRow label="Username" required>
+                <input style={INPUT} value={createForm.username} onChange={e => setCreateForm(f => ({...f, username: e.target.value}))} required placeholder="e.g. jsmith" autoComplete="off" />
+              </FormRow>
+              <FormRow label="Password" required>
+                <input type="password" style={INPUT} value={createForm.password} onChange={e => setCreateForm(f => ({...f, password: e.target.value}))} required placeholder="••••••••" autoComplete="new-password" />
+              </FormRow>
+              <FormRow label="Email">
+                <input type="email" style={INPUT} value={createForm.email} onChange={e => setCreateForm(f => ({...f, email: e.target.value}))} placeholder="jsmith@example.com" />
+              </FormRow>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <MultiCheckbox
+                label="Roles (select one or more)"
+                options={ALL_ROLES.map(r => ({ value: r.value, label: r.label }))}
+                selected={createForm.roles}
+                onChange={v => setCreateForm(f => ({...f, roles: v}))}
               />
-            </FormRow>
-            <FormRow label="Password" required>
-              <input
-                type="password"
-                className={INPUT_CLS}
-                value={createForm.password}
-                onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
-                required
-                placeholder="••••••••"
-                autoComplete="new-password"
-              />
-            </FormRow>
-            <FormRow label="Email">
-              <input
-                type="email"
-                className={INPUT_CLS}
-                value={createForm.email}
-                onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="e.g. jsmith@example.com"
-              />
-            </FormRow>
-            <FormRow label="Role" required>
-              <select
-                className={INPUT_CLS}
-                value={createForm.role}
-                onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))}
-                required
-              >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Default Location">
-              <select
-                className={INPUT_CLS}
-                value={createForm.default_location_id}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, default_location_id: e.target.value }))
-                }
-              >
-                <option value="">— None —</option>
-                {locations.filter((l) => l.active).map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {locationLabel(l)}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-
-            <InlineMessage success={modalSuccess} error={modalError} />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(false)}
-                className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="text-sm px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50 transition hover:opacity-90"
-                style={{ backgroundColor: 'var(--cadet-dark)' }}
-              >
-                {submitting ? 'Creating…' : 'Create User'}
-              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+              <MultiSelect label="Assigned Locations" options={activeLocations.map(l => ({ id: l.id, code: l.code, name: l.name }))} selected={createForm.location_ids} onChange={v => setCreateForm(f => ({...f, location_ids: v}))} />
+              <MultiSelect label="Assigned Regions" options={regions.map(r => ({ id: r.id, code: r.code, name: r.name }))} selected={createForm.region_ids} onChange={v => setCreateForm(f => ({...f, region_ids: v}))} />
+            </div>
+            <InlineMsg success={modalSuccess} error={modalError} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setShowCreateModal(false)} style={BTN_SECONDARY}>Cancel</button>
+              <button type="submit" disabled={submitting} style={{ ...BTN_PRIMARY, opacity: submitting ? 0.6 : 1 }}>{submitting ? 'Creating…' : 'Create User'}</button>
             </div>
           </form>
         </Modal>
       )}
 
-      {/* ── Edit User Modal ────────────────────────────────────────────────── */}
-      {showEditModal && (
-        <Modal title="Edit User" onClose={() => setShowEditModal(false)}>
-          <form onSubmit={handleEdit} className="space-y-4">
+      {/* Edit Modal */}
+      {showEditModal && selectedUser && (
+        <Modal title={`Edit User: ${selectedUser.username}`} onClose={() => setShowEditModal(false)} wide>
+          <form onSubmit={handleEdit}>
             <FormRow label="Email">
-              <input
-                type="email"
-                className={INPUT_CLS}
-                value={editForm.email}
-                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="e.g. jsmith@example.com"
+              <input type="email" style={INPUT} value={editForm.email} onChange={e => setEditForm(f => ({...f, email: e.target.value}))} placeholder="jsmith@example.com" />
+            </FormRow>
+            <div style={{ marginTop: 14 }}>
+              <MultiCheckbox
+                label="Roles (select one or more)"
+                options={ALL_ROLES.map(r => ({ value: r.value, label: r.label }))}
+                selected={editForm.roles}
+                onChange={v => setEditForm(f => ({...f, roles: v}))}
               />
-            </FormRow>
-            <FormRow label="Role" required>
-              <select
-                className={INPUT_CLS}
-                value={editForm.role}
-                onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
-                required
-              >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Default Location">
-              <select
-                className={INPUT_CLS}
-                value={editForm.default_location_id}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, default_location_id: e.target.value }))
-                }
-              >
-                <option value="">— None —</option>
-                {locations.filter((l) => l.active).map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {locationLabel(l)}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Active">
-              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editForm.active === 1}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, active: e.target.checked ? 1 : 0 }))
-                  }
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-400"
-                />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+              <MultiSelect label="Assigned Locations" options={activeLocations.map(l => ({ id: l.id, code: l.code, name: l.name }))} selected={editForm.location_ids} onChange={v => setEditForm(f => ({...f, location_ids: v}))} />
+              <MultiSelect label="Assigned Regions" options={regions.map(r => ({ id: r.id, code: r.code, name: r.name }))} selected={editForm.region_ids} onChange={v => setEditForm(f => ({...f, region_ids: v}))} />
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={editForm.active === 1} onChange={e => setEditForm(f => ({...f, active: e.target.checked ? 1 : 0}))} />
                 User is active
               </label>
-            </FormRow>
-
-            <InlineMessage success={modalSuccess} error={modalError} />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowEditModal(false)}
-                className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="text-sm px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50 transition hover:opacity-90"
-                style={{ backgroundColor: 'var(--cadet-dark)' }}
-              >
-                {submitting ? 'Saving…' : 'Save Changes'}
-              </button>
+            </div>
+            <InlineMsg success={modalSuccess} error={modalError} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setShowEditModal(false)} style={BTN_SECONDARY}>Cancel</button>
+              <button type="submit" disabled={submitting} style={{ ...BTN_PRIMARY, opacity: submitting ? 0.6 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
             </div>
           </form>
         </Modal>
       )}
 
-      {/* ── Reset Password Modal ───────────────────────────────────────────── */}
-      {showResetModal && (
-        <Modal title="Reset Password" onClose={() => setShowResetModal(false)}>
-          <form onSubmit={handleResetPassword} className="space-y-4">
+      {/* Reset Password Modal */}
+      {showResetModal && selectedUser && (
+        <Modal title={`Reset Password: ${selectedUser.username}`} onClose={() => setShowResetModal(false)}>
+          <form onSubmit={handleReset}>
             <FormRow label="New Password" required>
-              <input
-                type="password"
-                className={INPUT_CLS}
-                value={resetForm.new_password}
-                onChange={(e) => setResetForm((f) => ({ ...f, new_password: e.target.value }))}
-                required
-                placeholder="••••••••"
-                autoComplete="new-password"
-              />
+              <input type="password" style={INPUT} value={resetForm.new_password} onChange={e => setResetForm(f => ({...f, new_password: e.target.value}))} required placeholder="••••••••" autoComplete="new-password" />
             </FormRow>
             <FormRow label="Confirm Password" required>
-              <input
-                type="password"
-                className={INPUT_CLS}
-                value={resetForm.confirm_password}
-                onChange={(e) =>
-                  setResetForm((f) => ({ ...f, confirm_password: e.target.value }))
-                }
-                required
-                placeholder="••••••••"
-                autoComplete="new-password"
-              />
+              <input type="password" style={INPUT} value={resetForm.confirm_password} onChange={e => setResetForm(f => ({...f, confirm_password: e.target.value}))} required placeholder="••••••••" autoComplete="new-password" />
             </FormRow>
-
-            <InlineMessage success={modalSuccess} error={modalError} />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowResetModal(false)}
-                className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="text-sm px-4 py-2 rounded-lg text-white font-medium disabled:opacity-50 transition hover:opacity-90"
-                style={{ backgroundColor: 'var(--cadet-dark)' }}
-              >
-                {submitting ? 'Resetting…' : 'Reset Password'}
-              </button>
+            <InlineMsg success={modalSuccess} error={modalError} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setShowResetModal(false)} style={BTN_SECONDARY}>Cancel</button>
+              <button type="submit" disabled={submitting} style={{ ...BTN_PRIMARY, opacity: submitting ? 0.6 : 1 }}>{submitting ? 'Resetting…' : 'Reset Password'}</button>
             </div>
           </form>
         </Modal>

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from auth import (
     create_access_token,
+    build_token_roles,
     get_current_user,
     verify_password,
 )
@@ -35,13 +36,17 @@ def login(
             detail="Account is inactive",
         )
 
-    access_token = create_access_token(data={"sub": user.username})
+    roles = build_token_roles(user, db)
+    # Primary role = first in list (for backward compat) or legacy users.role
+    primary_role = user.role or (roles[0] if roles else "")
+    access_token = create_access_token(data={"sub": user.username, "roles": roles})
 
     return Token(
         access_token=access_token,
         token_type="bearer",
-        role=user.role,
+        role=primary_role,
         username=user.username,
+        roles=roles,
     )
 
 

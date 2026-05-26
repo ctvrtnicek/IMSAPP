@@ -9,7 +9,7 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User
+from models import User, UserRole
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -80,4 +80,27 @@ def get_current_user(
     if user is None or not user.active:
         raise credentials_exception
 
+    # Attach roles list from user_roles table (falls back to legacy users.role)
+    role_rows = db.query(UserRole).filter(UserRole.user_id == user.id).all()
+    if role_rows:
+        user.roles_list = [r.role_code for r in role_rows]
+    else:
+        user.roles_list = [user.role] if user.role else []
+
     return user
+
+
+def build_token_roles(user: User, db: Session) -> list:
+    """Return the roles list for a user, used when issuing JWT."""
+    role_rows = db.query(UserRole).filter(UserRole.user_id == user.id).all()
+    if role_rows:
+        return [r.role_code for r in role_rows]
+    return [user.role] if user.role else []
+
+
+ALL_ROLES = {
+    "admin", "supply_planner", "demand_planner", "warehouse_user",
+    "repair_centre", "supplier",
+    # R3 new roles
+    "inbound_specialist", "outbound_specialist", "rma_manager", "senior_management",
+}

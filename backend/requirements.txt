@@ -9,3 +9,5 @@ pydantic>=2.10.0
 pydantic-settings>=2.6.0
 openpyxl>=3.1.0
 xlrd>=2.0.1
+
+psycopg2-binary

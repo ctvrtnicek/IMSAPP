@@ -20,13 +20,17 @@ def get_db():
         db.close()
 
 def init_database():
+    import sqlparse  # pip install sqlparse
+
     schema_path = Path(__file__).parent.parent / "schema.sql"
     if not schema_path.exists():
         return
     sql = schema_path.read_text(encoding="utf-8")
-    # Use AUTOCOMMIT so a failed CREATE TABLE doesn't abort the whole connection
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
+        for stmt in sqlparse.split(sql):
+            stmt = stmt.strip()
+            if not stmt:
+                continue
             try:
                 conn.execute(text(stmt))
             except Exception:
@@ -46,16 +50,12 @@ def init_database():
 
     seed_sql = seed_path.read_text(encoding="utf-8")
     stmts = [
-        s.strip() for s in seed_sql.split(";")
-        if s.strip()
-        and not s.strip().startswith("--")
-        and not s.strip().upper().startswith("SET SESSION")
+        s.strip() for s in sqlparse.split(seed_sql)
+        if s.strip() and not s.strip().startswith("--")
     ]
 
     ok = 0
     errors = 0
-    # AUTOCOMMIT: each INSERT is its own transaction.
-    # A failed FK insert won't abort subsequent statements.
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         for stmt in stmts:
             try:

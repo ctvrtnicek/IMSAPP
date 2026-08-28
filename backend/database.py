@@ -1,6 +1,7 @@
 import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+from pathlib import Path
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./terminal_tracking.db")
 
@@ -19,7 +20,6 @@ def get_db():
         db.close()
 
 def init_database():
-    from pathlib import Path
     schema_path = Path(__file__).parent.parent / "schema.sql"
     if not schema_path.exists():
         return
@@ -31,3 +31,22 @@ def init_database():
             except Exception:
                 pass
         conn.commit()
+    print("Database initialised.")
+    seed_path = Path(__file__).parent.parent / "seed.sql"
+    if not seed_path.exists():
+        return
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM users"))
+        count = result.scalar()
+        if count > 0:
+            print("Seed data already present, skipping.")
+            return
+    seed_sql = seed_path.read_text(encoding="utf-8")
+    with engine.connect() as conn:
+        for stmt in [s.strip() for s in seed_sql.split(";") if s.strip() and not s.strip().upper().startswith("SET SESSION")]:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
+        conn.commit()
+    print("Seed data loaded.")

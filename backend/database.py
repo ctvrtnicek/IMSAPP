@@ -36,7 +36,7 @@ def init_database():
     if not seed_path.exists():
         return
     with engine.connect() as conn:
-        result = conn.execute(text("SELECT COUNT(*) FROM users"))
+        result = conn.execute(text("SELECT COUNT(*) FROM serial_numbers"))
         count = result.scalar()
         if count > 0:
             print("Seed data already present, skipping.")

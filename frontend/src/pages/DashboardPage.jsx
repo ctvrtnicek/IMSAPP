@@ -623,7 +623,7 @@ export default function DashboardPage({ auth, setAuth }) {
                 : 'No AI agents running'}
               style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#fff', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center' }}
             >
-              🤖
+              ◉
               <span style={{
                 position: 'absolute', top: 2, right: 2,
                 width: 8, height: 8, borderRadius: '9999px',

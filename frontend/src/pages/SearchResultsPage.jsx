@@ -17,7 +17,7 @@ const TYPE_ICONS = {
 }
 
 const TYPE_COLORS = {
-  'Terminal':              '#1A6B7B',
+  'Terminal':              '#1E4E8C',
   'Purchase Order':        '#2563eb',
   'Sales Order':           '#16a34a',
   'Rental Order':          '#7c3aed',

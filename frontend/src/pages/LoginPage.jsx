@@ -37,7 +37,7 @@ export default function LoginPage({ setAuth }) {
     <div style={{ minHeight: '100vh', background: 'var(--bg-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 1rem' }}>
       <div style={{ width: '100%', maxWidth: 420 }}>
         {/* Brand bar */}
-        <div style={{ background: 'var(--cadet-dark)', borderRadius: 'var(--radius-card) var(--radius-card) 0 0', padding: '1.5rem 2rem', textAlign: 'center' }}>
+        <div style={{ background: '#5ba4cf', borderRadius: 'var(--radius-card) var(--radius-card) 0 0', padding: '1.5rem 2rem', textAlign: 'center' }}>
           <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-h2)', color: '#fff', letterSpacing: '-0.01em' }}>
             Terminal Stock App
           </div>

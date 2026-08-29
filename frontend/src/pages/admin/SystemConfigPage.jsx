@@ -85,8 +85,8 @@ export default function SystemConfigPage() {
           Centralised admin-managed system parameters. Changes take effect immediately.
         </p>
         <div style={{
-          background: '#E8F4F6', border: '1px solid #1A6B7B', borderRadius: 8,
-          padding: '10px 16px', fontSize: 13, color: '#1A6B7B',
+          background: '#E8F4F6', border: '1px solid #1E4E8C', borderRadius: 8,
+          padding: '10px 16px', fontSize: 13, color: '#1E4E8C',
         }}>
           Agent settings (AGENT_SHORTAGE_*, AGENT_PIPELINE_STATES, etc.) have moved to{' '}
           <strong>Admin → Agentic</strong>, where you can also run the agent, view run history, and manage allocation intents.
@@ -132,7 +132,7 @@ export default function SystemConfigPage() {
                       {isEditing ? (
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <button onClick={() => requestSave(cfg)} disabled={saving}
-                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: '#1A6B7B', color: '#fff', border: 'none', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
+                            style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, background: '#1E4E8C', color: '#fff', border: 'none', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
                             Save
                           </button>
                           <button onClick={cancelEdit}
@@ -168,7 +168,7 @@ export default function SystemConfigPage() {
               <button onClick={() => setConfirmKey(null)}
                 style={{ fontSize: 13, padding: '7px 16px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', color: '#374151' }}>Cancel</button>
               <button onClick={confirmSave}
-                style={{ fontSize: 13, padding: '7px 16px', borderRadius: 8, background: '#1A6B7B', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Confirm Save</button>
+                style={{ fontSize: 13, padding: '7px 16px', borderRadius: 8, background: '#1E4E8C', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Confirm Save</button>
             </div>
           </div>
         </div>

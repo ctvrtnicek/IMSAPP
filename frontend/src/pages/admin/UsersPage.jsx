@@ -103,7 +103,7 @@ function Modal({ title, onClose, children, wide }) {
 }
 
 const INPUT = { width: '100%', border: '1px solid #d1d5db', borderRadius: 8, padding: '7px 11px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }
-const BTN_PRIMARY = { background: '#1A6B7B', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }
+const BTN_PRIMARY = { background: '#1E4E8C', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }
 const BTN_SECONDARY = { background: 'transparent', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, padding: '8px 18px', fontSize: 13, cursor: 'pointer' }
 
 function FormRow({ label, required, children }) {
@@ -473,8 +473,8 @@ export default function UsersPage({ role, currentUsername }) {
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
             padding: '8px 20px', fontSize: 13, fontWeight: 500, cursor: 'pointer',
             border: 'none', background: 'transparent',
-            color: activeTab === t.id ? '#1A6B7B' : '#6b7280',
-            borderBottom: activeTab === t.id ? '2px solid #1A6B7B' : '2px solid transparent',
+            color: activeTab === t.id ? '#1E4E8C' : '#6b7280',
+            borderBottom: activeTab === t.id ? '2px solid #1E4E8C' : '2px solid transparent',
             marginBottom: -2,
           }}>
             {t.label}

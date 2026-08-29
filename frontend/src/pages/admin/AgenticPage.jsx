@@ -17,7 +17,7 @@ const AGENT_KEYS = [
 ]
 
 const STEP_COLORS = {
-  THINK:          { bg: '#1A6B7B', text: '#fff' },
+  THINK:          { bg: '#1E4E8C', text: '#fff' },
   ACT:            { bg: '#D46A00', text: '#fff' },
   OBSERVE:        { bg: '#2E7D32', text: '#fff' },
   SUMMARY:        { bg: '#5C3A8E', text: '#fff' },
@@ -56,7 +56,7 @@ function ThinkingPanel({ runId, onClose }) {
       zIndex: 1000, display: 'flex', flexDirection: 'column',
     }}>
       <div style={{
-        background: '#1A6B7B', color: '#fff', padding: '16px 20px',
+        background: '#1E4E8C', color: '#fff', padding: '16px 20px',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <div>
@@ -83,7 +83,7 @@ function ThinkingPanel({ runId, onClose }) {
                 background: '#f8f8f8', borderRadius: 4, padding: '6px 10px',
               }}>{log.message}</div>
               {log.order_ref && (
-                <div style={{ fontSize: 11, color: '#1A6B7B', marginTop: 2 }}>
+                <div style={{ fontSize: 11, color: '#1E4E8C', marginTop: 2 }}>
                   Order: {log.order_ref}
                 </div>
               )}
@@ -183,11 +183,11 @@ export default function AgenticPage() {
   }
 
   const tdStyle = { padding: '8px 12px', borderBottom: '1px solid #eee', fontSize: 13 }
-  const thStyle = { ...tdStyle, fontWeight: 700, background: '#1A6B7B', color: '#fff', textAlign: 'left' }
+  const thStyle = { ...tdStyle, fontWeight: 700, background: '#1E4E8C', color: '#fff', textAlign: 'left' }
 
   return (
     <div style={{ padding: 28, fontFamily: 'Arial, sans-serif', maxWidth: 1200 }}>
-      <h1 style={{ color: '#1A6B7B', marginBottom: 4 }}>Agentic</h1>
+      <h1 style={{ color: '#1E4E8C', marginBottom: 4 }}>Agentic</h1>
       <p style={{ color: '#666', marginBottom: 24 }}>
         AI-powered inventory agents — configuration, run history, and allocation intents.
       </p>
@@ -195,7 +195,7 @@ export default function AgenticPage() {
       {/* ── Panel 1: Agent Control ─────────────────────────────────────── */}
       <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 8, marginBottom: 24 }}>
         <div style={{
-          background: '#1A6B7B', color: '#fff', padding: '12px 20px',
+          background: '#1E4E8C', color: '#fff', padding: '12px 20px',
           borderRadius: '8px 8px 0 0', display: 'flex', alignItems: 'center', gap: 12,
         }}>
           <span style={{ fontWeight: 700, fontSize: 15 }}>IMS_InventoryShortage Agent</span>
@@ -210,7 +210,7 @@ export default function AgenticPage() {
               onClick={handleRunNow}
               disabled={running}
               style={{
-                background: running ? '#aaa' : '#1A6B7B', color: '#fff',
+                background: running ? '#aaa' : '#1E4E8C', color: '#fff',
                 border: 'none', borderRadius: 6, padding: '10px 24px',
                 fontWeight: 700, fontSize: 14, cursor: running ? 'not-allowed' : 'pointer',
               }}
@@ -248,7 +248,7 @@ export default function AgenticPage() {
           )}
 
           {/* Agent config table */}
-          <h3 style={{ color: '#1A6B7B', fontSize: 14, marginBottom: 8 }}>Agent Settings</h3>
+          <h3 style={{ color: '#1E4E8C', fontSize: 14, marginBottom: 8 }}>Agent Settings</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20 }}>
             <thead>
               <tr>
@@ -264,7 +264,7 @@ export default function AgenticPage() {
                       <input
                         value={editVal}
                         onChange={e => setEditVal(e.target.value)}
-                        style={{ border: '1px solid #1A6B7B', borderRadius: 4, padding: '4px 8px', width: 250, fontSize: 13 }}
+                        style={{ border: '1px solid #1E4E8C', borderRadius: 4, padding: '4px 8px', width: 250, fontSize: 13 }}
                         autoFocus
                       />
                     ) : (
@@ -274,12 +274,12 @@ export default function AgenticPage() {
                   <td style={{ ...tdStyle, width: 140 }}>
                     {editingKey === key ? (
                       <span style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => handleSaveConfig(key)} style={{ background: '#1A6B7B', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: 12 }}>Save</button>
+                        <button onClick={() => handleSaveConfig(key)} style={{ background: '#1E4E8C', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: 12 }}>Save</button>
                         <button onClick={() => setEditingKey(null)} style={{ background: '#eee', border: 'none', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
                       </span>
                     ) : (
                       <button onClick={() => { setEditingKey(key); setEditVal(config[key] ?? '') }}
-                        style={{ background: 'none', border: '1px solid #1A6B7B', color: '#1A6B7B', borderRadius: 4, padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>
+                        style={{ background: 'none', border: '1px solid #1E4E8C', color: '#1E4E8C', borderRadius: 4, padding: '3px 10px', cursor: 'pointer', fontSize: 12 }}>
                         Edit
                       </button>
                     )}
@@ -293,7 +293,7 @@ export default function AgenticPage() {
 
       {/* ── Panel 2: Run History ───────────────────────────────────────── */}
       <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 8, marginBottom: 24 }}>
-        <div style={{ background: '#1A6B7B', color: '#fff', padding: '12px 20px', borderRadius: '8px 8px 0 0', fontWeight: 700, fontSize: 15 }}>
+        <div style={{ background: '#1E4E8C', color: '#fff', padding: '12px 20px', borderRadius: '8px 8px 0 0', fontWeight: 700, fontSize: 15 }}>
           Run History
         </div>
         <div style={{ padding: 20 }}>
@@ -328,7 +328,7 @@ export default function AgenticPage() {
                       <td style={tdStyle}>
                         <button
                           onClick={() => setThinkingRunId(run.run_id)}
-                          style={{ background: 'none', border: '1px solid #1A6B7B', color: '#1A6B7B', borderRadius: 4, padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                          style={{ background: 'none', border: '1px solid #1E4E8C', color: '#1E4E8C', borderRadius: 4, padding: '3px 10px', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
                         >
                           View Thinking
                         </button>
@@ -345,7 +345,7 @@ export default function AgenticPage() {
       {/* ── Panel 3: Active Allocation Intents ─────────────────────────── */}
       <div style={{ background: '#fff', border: '1px solid #ddd', borderRadius: 8, marginBottom: 24 }}>
         <div style={{
-          background: '#1A6B7B', color: '#fff', padding: '12px 20px',
+          background: '#1E4E8C', color: '#fff', padding: '12px 20px',
           borderRadius: '8px 8px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <span style={{ fontWeight: 700, fontSize: 15 }}>Active Allocation Intents</span>
@@ -397,9 +397,9 @@ export default function AgenticPage() {
           )}
           {intents.some(i => i.reasoning) && (
             <details style={{ marginTop: 16 }}>
-              <summary style={{ cursor: 'pointer', color: '#1A6B7B', fontSize: 13 }}>Show Claude's reasoning for intents</summary>
+              <summary style={{ cursor: 'pointer', color: '#1E4E8C', fontSize: 13 }}>Show Claude's reasoning for intents</summary>
               {intents.filter(i => i.reasoning).map(i => (
-                <div key={i.id} style={{ marginTop: 8, background: '#f8f8f8', borderLeft: '3px solid #1A6B7B', padding: '8px 12px', fontSize: 12, fontStyle: 'italic', color: '#444' }}>
+                <div key={i.id} style={{ marginTop: 8, background: '#f8f8f8', borderLeft: '3px solid #1E4E8C', padding: '8px 12px', fontSize: 12, fontStyle: 'italic', color: '#444' }}>
                   <b>Intent #{i.id} ({i.product_code} {i.from_location_code} → {i.to_location_code}):</b> {i.reasoning}
                 </div>
               ))}

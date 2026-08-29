@@ -34,6 +34,10 @@ import SystemConfigPage from './admin/SystemConfigPage.jsx'
 import NetworkDesignPage from './admin/NetworkDesignPage.jsx'
 import FirmwarePage from './admin/FirmwarePage.jsx'
 import SearchResultsPage from './SearchResultsPage.jsx'
+import ATPConfigPage from './admin/ATPConfigPage.jsx'
+import AgenticPage from './admin/AgenticPage.jsx'
+import TraceabilityPage from './inventory/TraceabilityPage.jsx'
+import SupplierPortalPage from './supplier/SupplierPortalPage.jsx'
 
 // ---------------------------------------------------------------------------
 // Role-based visibility helpers
@@ -112,6 +116,8 @@ const ADMIN_TABS = [
   { id: 'network-design',   label: 'Network Design' },
   { id: 'firmware',         label: 'Firmware' },
   { id: 'upload',           label: 'Upload' },
+  { id: 'atp-config',       label: 'ATP Config' },
+  { id: 'agents',           label: 'Agents' },
 ]
 
 const WAREHOUSE_TABS = [
@@ -131,6 +137,7 @@ const INVENTORY_TABS = [
   { id: 'by-product',  label: 'By Product' },
   { id: 'in-transit',  label: 'In Transit' },
   { id: 'accessories', label: 'Accessories' },
+  { id: 'traceability', label: 'Traceability' },
 ]
 
 const ROLE_LABELS = {
@@ -429,6 +436,8 @@ export default function DashboardPage({ auth, setAuth }) {
             {activeAdminTab === 'network-design'   && <NetworkDesignPage role={role} />}
             {activeAdminTab === 'firmware'         && <FirmwarePage role={role} />}
             {activeAdminTab === 'upload'           && <ExcelUploadPage />}
+            {activeAdminTab === 'atp-config'       && <ATPConfigPage role={role} />}
+            {activeAdminTab === 'agents'           && <AgenticPage />}
           </div>
         </div>
       )
@@ -509,6 +518,7 @@ export default function DashboardPage({ auth, setAuth }) {
             {activeInvTab === 'by-product'  && <ByProductPage    role={role} />}
             {activeInvTab === 'in-transit'  && <InTransitPage    role={role} />}
             {activeInvTab === 'accessories' && <NonSerialisedPage role={role} />}
+            {activeInvTab === 'traceability' && <TraceabilityPage role={role} />}
           </div>
         </div>
       )
@@ -571,6 +581,12 @@ export default function DashboardPage({ auth, setAuth }) {
     )
   }
 
+  // Suppliers get a dedicated, self-contained portal (their own POs, serial
+  // import, alerts) instead of the internal-staff sidebar/nav — the rest of
+  // the app's modules (master data, warehouse, admin, ...) aren't relevant
+  // to a supplier's role.
+  const isSupplierOnly = role === 'supplier'
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-2)' }}>
       {/* Top bar */}
@@ -580,25 +596,27 @@ export default function DashboardPage({ auth, setAuth }) {
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
           {/* Alert bell */}
-          <button
-            onClick={() => handleNavChange('alerts')}
-            title={alertSummary.total > 0 ? `${alertSummary.total} active alert${alertSummary.total !== 1 ? 's' : ''}` : 'No active alerts'}
-            style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#fff', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center' }}
-          >
-            🔔
-            {alertSummary.total > 0 && (
-              <span style={{
-                position: 'absolute', top: -4, right: -4,
-                background: alertSummary.critical > 0 ? '#dc2626' : '#f59e0b',
-                color: '#fff', borderRadius: '9999px',
-                fontSize: 9, fontWeight: 700,
-                minWidth: 16, height: 16, lineHeight: '16px',
-                textAlign: 'center', padding: '0 3px',
-              }}>
-                {alertSummary.total > 99 ? '99+' : alertSummary.total}
-              </span>
-            )}
-          </button>
+          {!isSupplierOnly && (
+            <button
+              onClick={() => handleNavChange('alerts')}
+              title={alertSummary.total > 0 ? `${alertSummary.total} active alert${alertSummary.total !== 1 ? 's' : ''}` : 'No active alerts'}
+              style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#fff', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center' }}
+            >
+              🔔
+              {alertSummary.total > 0 && (
+                <span style={{
+                  position: 'absolute', top: -4, right: -4,
+                  background: alertSummary.critical > 0 ? '#dc2626' : '#f59e0b',
+                  color: '#fff', borderRadius: '9999px',
+                  fontSize: 9, fontWeight: 700,
+                  minWidth: 16, height: 16, lineHeight: '16px',
+                  textAlign: 'center', padding: '0 3px',
+                }}>
+                  {alertSummary.total > 99 ? '99+' : alertSummary.total}
+                </span>
+              )}
+            </button>
+          )}
           <span style={{ fontSize: 'var(--fs-body-sm)', opacity: 0.85 }}>
             {username}{' '}
             <span style={{ opacity: 0.65, fontSize: 'var(--fs-label)' }}>({roleLabel})</span>
@@ -620,24 +638,30 @@ export default function DashboardPage({ auth, setAuth }) {
         </div>
       </header>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <Sidebar
-          activeNav={activeNav}
-          onNavChange={handleNavChange}
-          roles={roles}
-          alertSummary={alertSummary}
-          searchQuery={searchQuery}
-          onSearchQuery={setSearchQuery}
-          onSearchSubmit={handleSearchSubmit}
-          collapsed={collapsed}
-          onToggleCollapse={handleToggleCollapse}
-        />
-
-        {/* Main Content */}
+      {isSupplierOnly ? (
         <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
-          {renderContent()}
+          <SupplierPortalPage />
         </main>
-      </div>
+      ) : (
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <Sidebar
+            activeNav={activeNav}
+            onNavChange={handleNavChange}
+            roles={roles}
+            alertSummary={alertSummary}
+            searchQuery={searchQuery}
+            onSearchQuery={setSearchQuery}
+            onSearchSubmit={handleSearchSubmit}
+            collapsed={collapsed}
+            onToggleCollapse={handleToggleCollapse}
+          />
+
+          {/* Main Content */}
+          <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
+            {renderContent()}
+          </main>
+        </div>
+      )}
     </div>
   )
 }

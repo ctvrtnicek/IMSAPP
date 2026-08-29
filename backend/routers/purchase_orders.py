@@ -5,14 +5,17 @@ All endpoints require authentication.
 Prefix: /api/purchase-orders
 """
 
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
+from document_processor import process_document
 from routers.cost_engine import apply_cost
 from state_activity_map import get_activity_description
 from models import (
@@ -388,6 +391,52 @@ def import_serials(
         duplicates=duplicates,
         errors=errors,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/purchase-orders/{id}/extract-document
+# ---------------------------------------------------------------------------
+
+@router.post("/{po_id}/extract-document")
+async def extract_document(
+    po_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Best-effort extraction of serial numbers from an uploaded shipment
+    document (packing list, delivery note, ...) — the supplier portal's
+    "upload document" flow feeds the result into import-serials for review
+    before confirming. Regex-based by default (no external dependencies);
+    OCR/PDF support degrades gracefully if pytesseract/PyMuPDF aren't
+    installed — extraction just finds nothing on those file types.
+    """
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
+
+    data = await file.read()
+    suffix = os.path.splitext(file.filename or "")[1]
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        result = process_document(tmp_path, file.content_type or "")
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return {
+        "serials": result.serials,
+        "shipment_reference": result.shipment_reference,
+        "errors": result.errors,
+        "provider_used": result.provider_used,
+    }
 
 
 # ---------------------------------------------------------------------------

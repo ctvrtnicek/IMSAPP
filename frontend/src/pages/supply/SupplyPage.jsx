@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { listTargets, createTarget, updateTarget, deleteTarget, getReplenishment, createReposition, suggestSource, createPurchaseRequisition, getPurchasePrediction } from '../../api/supply_planning.js'
 import { getProducts, getLocations } from '../../api/masterdata.js'
 import Modal from '../../components/Modal.jsx'
+import AllocationPage from './AllocationPage.jsx'
 
 const TABS = [
   { id: 'targets',       label: 'Safety Stock Targets' },
   { id: 'replenishment', label: 'Replenishment Planner' },
   { id: 'prediction',    label: 'Purchase Prediction' },
+  { id: 'allocation',    label: 'Allocation' },
 ]
 
 const URGENCY_STYLE = {
@@ -285,6 +287,9 @@ export default function SupplyPage({ role, onNavigate }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <SubTabBar tabs={TABS} active={tab} onChange={setTab} />
+
+      {/* ---- ALLOCATION (ATP) ---- */}
+      {tab === 'allocation' && <AllocationPage role={role} />}
 
       {/* ---- SAFETY STOCK TARGETS ---- */}
       {tab === 'targets' && (

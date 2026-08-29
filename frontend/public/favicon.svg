@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Green rounded background -->
+  <rect width="32" height="32" rx="6" fill="#16a34a"/>
+
+  <!-- Terminal body -->
+  <rect x="8" y="7" width="16" height="18" rx="2" fill="#fff"/>
+
+  <!-- Screen -->
+  <rect x="10" y="9" width="12" height="7" rx="1" fill="#bbf7d0"/>
+
+  <!-- Keypad rows -->
+  <!-- Row 1 -->
+  <rect x="10" y="18" width="3" height="2" rx="0.5" fill="#16a34a"/>
+  <rect x="14.5" y="18" width="3" height="2" rx="0.5" fill="#16a34a"/>
+  <rect x="19" y="18" width="3" height="2" rx="0.5" fill="#16a34a"/>
+  <!-- Row 2 -->
+  <rect x="10" y="21" width="3" height="2" rx="0.5" fill="#16a34a"/>
+  <rect x="14.5" y="21" width="3" height="2" rx="0.5" fill="#16a34a"/>
+  <rect x="19" y="21" width="3" height="2" rx="0.5" fill="#4ade80"/>
+
+  <!-- Card slot at bottom -->
+  <rect x="12" y="24" width="8" height="1" rx="0.5" fill="#d1fae5"/>
+</svg>

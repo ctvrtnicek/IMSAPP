@@ -1071,3 +1071,83 @@ class ProductCountry(Base):
     product_code = Column(Text, primary_key=True)
     country_code = Column(Text, primary_key=True)
     active       = Column(Integer, nullable=False, default=1)
+
+
+# ---------------------------------------------------------------------------
+# R3 — Inventory Shortage Agent
+# ---------------------------------------------------------------------------
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    run_id            = Column(Text, nullable=False)
+    agent_name        = Column(Text, nullable=False)
+    triggered_by      = Column(Text)
+    status            = Column(Text, nullable=False)
+    shortages_found   = Column(Integer)
+    actions_taken     = Column(Integer)
+    hitl_items        = Column(Integer)
+    intents_recorded  = Column(Integer)
+    intents_executed  = Column(Integer)
+    summary_text      = Column(Text)
+    started_at        = Column(TIMESTAMP, server_default=func.current_timestamp())
+    completed_at      = Column(TIMESTAMP)
+
+
+class AgentLog(Base):
+    __tablename__ = "agent_logs"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    run_id      = Column(Text, nullable=False)
+    agent_name  = Column(Text, nullable=False)
+    step_type   = Column(Text, nullable=False)
+    message     = Column(Text)
+    order_ref   = Column(Text)
+    created_at  = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+
+class AgentRecommendation(Base):
+    __tablename__ = "agent_recommendations"
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    run_id               = Column(Text, nullable=False)
+    agent_name           = Column(Text, nullable=False)
+    rec_type             = Column(Text, nullable=False)
+    product_id           = Column(Integer, ForeignKey("products.id"))
+    from_location_id     = Column(Integer, ForeignKey("locations.id"))
+    to_location_id       = Column(Integer, ForeignKey("locations.id"))
+    qty                  = Column(Integer)
+    shortage_qty         = Column(Integer)
+    estimated_value      = Column(Float)
+    status               = Column(Text, nullable=False, default="Pending")
+    order_ref            = Column(Text)
+    notes                = Column(Text)
+    created_at           = Column(TIMESTAMP, server_default=func.current_timestamp())
+    actioned_at          = Column(TIMESTAMP)
+    actioned_by_user_id  = Column(Integer, ForeignKey("users.id"))
+    product       = relationship("Product", foreign_keys=[product_id])
+    from_location = relationship("Location", foreign_keys=[from_location_id])
+    to_location   = relationship("Location", foreign_keys=[to_location_id])
+    actioned_by   = relationship("User")
+
+
+class AgentAllocationIntent(Base):
+    __tablename__ = "agent_allocation_intents"
+    id                     = Column(Integer, primary_key=True, autoincrement=True)
+    run_id                 = Column(Text, nullable=False)
+    agent_name             = Column(Text, nullable=False)
+    product_id             = Column(Integer, ForeignKey("products.id"))
+    from_location_id       = Column(Integer, ForeignKey("locations.id"))
+    to_location_id         = Column(Integer, ForeignKey("locations.id"))
+    reserved_qty           = Column(Integer, nullable=False)
+    remaining_qty          = Column(Integer, nullable=False)
+    reasoning              = Column(Text)
+    status                 = Column(Text, nullable=False)
+    horizon_days           = Column(Integer)
+    created_at             = Column(TIMESTAMP, server_default=func.current_timestamp())
+    executed_at            = Column(TIMESTAMP)
+    cancelled_at           = Column(TIMESTAMP)
+    cancelled_by_user_id   = Column(Integer, ForeignKey("users.id"))
+    execution_do_refs      = Column(Text)
+    product       = relationship("Product", foreign_keys=[product_id])
+    from_location = relationship("Location", foreign_keys=[from_location_id])
+    to_location   = relationship("Location", foreign_keys=[to_location_id])
+    cancelled_by  = relationship("User")

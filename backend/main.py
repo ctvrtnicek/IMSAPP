@@ -31,6 +31,10 @@ from routers import system_config as system_config_module
 from routers import search as search_module
 from routers import network_design as network_design_module
 from routers import firmware as firmware_module
+from routers import agents as agents_module
+from routers import atp as atp_module
+from routers import traceability as traceability_module
+from routers import admin_db as admin_db_module
 
 # ---------------------------------------------------------------------------
 # Application
@@ -46,7 +50,13 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "https://calm-jelly-3201a8.netlify.app"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://imsapp-dev.netlify.app",
+        "https://calm-jelly-3201a8.netlify.app",  # old/reference URL, kept in case it's revived
+    ],
+    allow_origin_regex=r"https://.*--imsapp-dev\.netlify\.app",  # Netlify deploy previews
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -125,6 +135,18 @@ app.include_router(network_design_module.router)
 # Phase 3B — Firmware master data
 app.include_router(firmware_module.router)
 
+# R3 — Available to Promise
+app.include_router(atp_module.router)
+
+# R3 — Traceability & RMA
+app.include_router(traceability_module.router)
+
+# R3 — Inventory Shortage Agent
+app.include_router(agents_module.router)
+
+# Admin — DB schema/seed diagnostics
+app.include_router(admin_db_module.router)
+
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
@@ -133,15 +155,24 @@ DB_PATH = Path(__file__).parent / "terminal_tracking.db"
 
 @app.on_event("startup")
 def on_startup():
-    # Always ensure ORM-defined tables exist (idempotent via CREATE TABLE IF NOT EXISTS)
-    Base.metadata.create_all(bind=engine)
-    if not DB_PATH.exists():
-        print("Database not found — initialising from schema.sql …")
+    # schema.sql / schema_postgres.sql is the source of truth for table structure
+    # (kept in sync with local dev via backend/tools/generate_pg_schema.py) — it
+    # must run *before* the ORM's create_all, otherwise create_all creates any
+    # not-yet-existing tables using models.py's (possibly incomplete) column set,
+    # and the fuller schema.sql definition then silently no-ops because the table
+    # already exists. On Postgres this runs on every fresh container start (the
+    # free tier has no persistent app disk, so DB_PATH never survives a restart);
+    # it's safe because schema creation is idempotent and every seed.sql INSERT
+    # uses ON CONFLICT DO NOTHING.
+    if engine.dialect.name == "postgresql" or not DB_PATH.exists():
+        print("Initialising database schema + seed data …")
         try:
             init_database()
         except FileNotFoundError:
-            pass  # schema.sql optional; ORM tables already created above
+            pass  # schema file optional; ORM tables created below as a fallback
         print("Database initialised.")
+    # Safety net for any ORM-only tables not (yet) covered by the schema file.
+    Base.metadata.create_all(bind=engine)
 
 
 # ---------------------------------------------------------------------------

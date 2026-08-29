@@ -5,19 +5,27 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from models import Customer, User
+from models import Customer, CustomerSegment, User
 from schemas import CustomerCreate, CustomerOut, CustomerUpdate
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
 
-@router.get("", response_model=List[CustomerOut])
+def _customer_out(c: Customer, db: Session) -> dict:
+    d = CustomerOut.model_validate(c).model_dump()
+    if c.segment_id:
+        seg = db.query(CustomerSegment).filter(CustomerSegment.id == c.segment_id).first()
+        d["segment_name"] = seg.segment_name if seg else None
+    return d
+
+
+@router.get("", response_model=List[dict])
 def list_customers(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Return all customers."""
-    return db.query(Customer).all()
+    return [_customer_out(c, db) for c in db.query(Customer).all()]
 
 
 @router.post("", response_model=CustomerOut, status_code=status.HTTP_201_CREATED)
@@ -43,10 +51,10 @@ def create_customer(
     db.add(customer)
     db.commit()
     db.refresh(customer)
-    return customer
+    return _customer_out(customer, db)
 
 
-@router.get("/{customer_id}", response_model=CustomerOut)
+@router.get("/{customer_id}", response_model=dict)
 def get_customer(
     customer_id: int,
     db: Session = Depends(get_db),
@@ -56,10 +64,10 @@ def get_customer(
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
-    return customer
+    return _customer_out(customer, db)
 
 
-@router.put("/{customer_id}", response_model=CustomerOut)
+@router.put("/{customer_id}", response_model=dict)
 def update_customer(
     customer_id: int,
     payload: CustomerUpdate,
@@ -82,7 +90,7 @@ def update_customer(
 
     db.commit()
     db.refresh(customer)
-    return customer
+    return _customer_out(customer, db)
 
 
 @router.delete("/{customer_id}", response_model=CustomerOut)

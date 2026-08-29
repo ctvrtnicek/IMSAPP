@@ -43,8 +43,29 @@ def create_location_type(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Location type already exists")
 
-    lt = LocationType(name=payload.name)
+    lt = LocationType(name=payload.name, gr_applicable=payload.gr_applicable, accruals_applicable=payload.accruals_applicable)
     db.add(lt)
+    db.commit()
+    db.refresh(lt)
+    return lt
+
+
+@location_types_router.put("/{lt_id}", response_model=LocationTypeOut)
+def update_location_type(
+    lt_id: int,
+    payload: LocationTypeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update a location type (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+    lt = db.query(LocationType).filter(LocationType.id == lt_id).first()
+    if not lt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location type not found")
+    lt.name = payload.name
+    lt.gr_applicable = payload.gr_applicable
+    lt.accruals_applicable = payload.accruals_applicable
     db.commit()
     db.refresh(lt)
     return lt
@@ -68,6 +89,9 @@ def _to_location_out(loc: Location) -> LocationOut:
         reporting_currency=loc.reporting_currency,
         active=loc.active,
         location_type_name=loc.location_type.name if loc.location_type else None,
+        country_code=loc.country_code,
+        gr_applicable=loc.location_type.gr_applicable if loc.location_type else None,
+        accruals_applicable=loc.location_type.accruals_applicable if loc.location_type else None,
     )
 
 

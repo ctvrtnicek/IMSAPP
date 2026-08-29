@@ -12,6 +12,8 @@ import { getSerials } from '../../api/inventory.js'
 import { getLocations } from '../../api/masterdata.js'
 import api from '../../api/auth.js'
 
+const listFirmware = () => api.get('/firmware')
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -95,8 +97,14 @@ function BulkUpdatePanel({ states, locations }) {
   const [toStateCode, setToStateCode] = useState('')
   const [newLocationId, setNewLocationId] = useState('')
   const [notes, setNotes] = useState('')
+  const [firmwareId, setFirmwareId] = useState('')
+  const [allFirmware, setAllFirmware] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState(null)
+
+  useEffect(() => {
+    listFirmware().then(r => setAllFirmware(Array.isArray(r.data) ? r.data : [])).catch(() => {})
+  }, [])
 
   // Compute suggested target states
   const suggestedTargets = WAREHOUSE_FLOW[fromStateCode] || states.map((s) => s.code)
@@ -151,6 +159,7 @@ function BulkUpdatePanel({ states, locations }) {
       to_state_code: toStateCode,
       location_id: newLocationId ? parseInt(newLocationId) : null,
       notes: notes || null,
+      firmware_id: (toStateCode === 'ENCRYPTION_KEY_LOADED' && firmwareId) ? parseInt(firmwareId) : null,
     }
     bulkStateUpdate(payload)
       .then((res) => {
@@ -172,6 +181,7 @@ function BulkUpdatePanel({ states, locations }) {
         setToStateCode('')
         setNotes('')
         setNewLocationId('')
+        setFirmwareId('')
       })
       .catch(() => {
         setResult({ type: 'error', message: 'State update failed. Check your permissions.' })
@@ -421,6 +431,27 @@ function BulkUpdatePanel({ states, locations }) {
                 }}
               />
             </div>
+
+            {toStateCode === 'ENCRYPTION_KEY_LOADED' && (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' }}>
+                  Firmware Version
+                </label>
+                <select
+                  value={firmwareId}
+                  onChange={(e) => setFirmwareId(e.target.value)}
+                  style={{
+                    border: '1px solid #d1d5db', borderRadius: '0.375rem',
+                    padding: '0.375rem 0.625rem', fontSize: '0.875rem', minWidth: '220px',
+                  }}
+                >
+                  <option value="">Select firmware…</option>
+                  {allFirmware
+                    .filter(fw => fw.active)
+                    .map(fw => <option key={fw.id} value={fw.id}>{fw.firmware_name}{fw.product_code ? ` (${fw.product_code})` : ''} — v{fw.version}</option>)}
+                </select>
+              </div>
+            )}
 
             <button
               onClick={applyUpdate}

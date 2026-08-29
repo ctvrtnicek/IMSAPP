@@ -171,6 +171,16 @@ export default function TerminalDetailPage() {
                       {accCurrency} {parseFloat(accumulatedCost).toFixed(2)}
                     </span>
                   </InfoCard>
+                  <InfoCard label="Pegged">
+                    {serial.pegged_to_order_id
+                      ? <span style={{ color: '#2563eb', fontWeight: 600 }}>Yes — <a href={`/order/${serial.pegged_to_order_id}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>View Order</a></span>
+                      : <span style={{ color: '#6b7280' }}>No</span>}
+                  </InfoCard>
+                  <InfoCard label="Firmware">
+                    {serial.firmware_name
+                      ? <>{serial.firmware_name} <span style={{ color: '#6b7280', fontWeight: 400 }}>v{serial.firmware_version}</span></>
+                      : '—'}
+                  </InfoCard>
                   <InfoCard label="Battery Aging">
                     {batteryAgingDays != null ? `${batteryAgingDays} days` : '—'}
                   </InfoCard>

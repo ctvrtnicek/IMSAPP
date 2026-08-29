@@ -146,7 +146,7 @@ export default function AllTerminalsPage() {
           <table className="e2o-table">
             <thead>
               <tr>
-                {['Serial Number', 'Product', 'State', 'Latest Location', 'Stock Type', 'Latest Date', 'Cost (€)', 'Actions'].map((h) => (
+                {['Serial Number', 'Product', 'State', 'Latest Location', 'Stock Type', 'Pegged', 'Latest Date', 'Cost (€)', 'Actions'].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -166,6 +166,11 @@ export default function AllTerminalsPage() {
                       : '—'}
                   </td>
                   <td>{s.stock_type}</td>
+                  <td>
+                    {s.pegged_to_order_id && (
+                      <span className="e2o-pill" style={{ background: '#dbeafe', color: '#1d4ed8', fontSize: 'var(--fs-body-sm)' }}>Pegged</span>
+                    )}
+                  </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-body-sm)', whiteSpace: 'nowrap' }}>
                     {s.latest_date ? s.latest_date.slice(0, 16).replace('T', ' ') : '—'}
                   </td>

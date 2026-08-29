@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, get_password_hash, ALL_ROLES
 from database import get_db
-from models import Location, Region, User, UserLocation, UserRegion, UserRole
+from models import Location, Region, Supplier, User, UserLocation, UserRegion, UserRole
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -24,6 +24,7 @@ class UserCreate(BaseModel):
     default_location_id: Optional[int] = None
     location_ids: Optional[List[int]] = None
     region_ids: Optional[List[int]] = None
+    supplier_id: Optional[int] = None
 
 
 class UserUpdate(BaseModel):
@@ -34,6 +35,7 @@ class UserUpdate(BaseModel):
     location_ids: Optional[List[int]] = None
     region_ids: Optional[List[int]] = None
     active: Optional[int] = None
+    supplier_id: Optional[int] = None
 
 
 class UserPasswordReset(BaseModel):
@@ -89,6 +91,8 @@ def user_to_out(u: User, db: Session) -> dict:
         if reg:
             regions.append({"id": reg.id, "code": reg.region_code, "name": reg.region_name})
 
+    supplier = db.query(Supplier).filter(Supplier.id == u.supplier_id).first() if u.supplier_id else None
+
     return {
         "id": u.id,
         "username": u.username,
@@ -101,6 +105,8 @@ def user_to_out(u: User, db: Session) -> dict:
         "region_ids": region_ids,
         "regions": regions,
         "active": u.active,
+        "supplier_id": u.supplier_id,
+        "supplier_name": supplier.name if supplier else None,
         "created_at": str(u.created_at) if u.created_at else None,
     }
 
@@ -169,16 +175,13 @@ def create_user(
     if existing:
         raise HTTPException(status_code=409, detail="Username already exists")
 
-    if payload.email:
-        if db.query(User).filter(User.email == payload.email).first():
-            raise HTTPException(status_code=409, detail="Email address already in use")
-
     new_user = User(
         username=payload.username,
         password_hash=get_password_hash(payload.password),
         email=payload.email,
         role=payload.role,
         default_location_id=payload.default_location_id,
+        supplier_id=payload.supplier_id,
         active=1,
     )
     db.add(new_user)
@@ -237,12 +240,8 @@ def update_user(
     if "role" in update_data and update_data["role"] not in ALL_ROLES:
         raise HTTPException(status_code=422, detail=f"Invalid role")
 
-    if "email" in update_data and update_data["email"]:
-        if db.query(User).filter(User.email == update_data["email"], User.id != user_id).first():
-            raise HTTPException(status_code=409, detail="Email address already in use")
-
     # Update scalar fields
-    for field in ("email", "role", "default_location_id", "active"):
+    for field in ("email", "role", "default_location_id", "active", "supplier_id"):
         if field in update_data:
             setattr(user, field, update_data[field])
 

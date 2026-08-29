@@ -153,6 +153,58 @@ app.include_router(admin_db_module.router)
 DB_PATH = Path(__file__).parent / "terminal_tracking.db"
 
 
+# ---------------------------------------------------------------------------
+# Scheduler (APScheduler) — runs the shortage agent automatically per the
+# schedule configured in Admin > Agents (AGENT_SHORTAGE_RUN_TIME_1/2).
+# ---------------------------------------------------------------------------
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+
+_scheduler = BackgroundScheduler(timezone=pytz.utc)
+
+
+def _schedule_shortage_agent(db_session=None):
+    """Read config and reschedule the shortage agent job."""
+    from database import SessionLocal
+    from models import SystemConfig
+
+    db = db_session or SessionLocal()
+    try:
+        def _cfg(key, default):
+            row = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
+            return row.current_value if row and row.current_value else default
+
+        enabled = _cfg("AGENT_SHORTAGE_ENABLED", "0") in ("1", "true")
+        t1 = _cfg("AGENT_SHORTAGE_RUN_TIME_1", "09:00")
+        t2 = _cfg("AGENT_SHORTAGE_RUN_TIME_2", "15:00")
+    finally:
+        if not db_session:
+            db.close()
+
+    cet = pytz.timezone("Europe/Paris")
+
+    for job_id in ("shortage_run_1", "shortage_run_2"):
+        if _scheduler.get_job(job_id):
+            _scheduler.remove_job(job_id)
+
+    if enabled:
+        from agents.ims_inventory_shortage import run_shortage_agent
+        for job_id, t in [("shortage_run_1", t1), ("shortage_run_2", t2)]:
+            try:
+                h, m = int(t.split(":")[0]), int(t.split(":")[1])
+                _scheduler.add_job(
+                    run_shortage_agent,
+                    CronTrigger(hour=h, minute=m, timezone=cet),
+                    id=job_id,
+                    replace_existing=True,
+                    kwargs={"triggered_by": "scheduler"},
+                )
+                print(f"  Shortage agent scheduled: {job_id} at {t} CET")
+            except Exception as e:
+                print(f"  Failed to schedule {job_id}: {e}")
+
+
 @app.on_event("startup")
 def on_startup():
     # schema.sql / schema_postgres.sql is the source of truth for table structure
@@ -173,6 +225,10 @@ def on_startup():
         print("Database initialised.")
     # Safety net for any ORM-only tables not (yet) covered by the schema file.
     Base.metadata.create_all(bind=engine)
+
+    _scheduler.start()
+    _schedule_shortage_agent()
+    print("Scheduler started.")
 
 
 # ---------------------------------------------------------------------------

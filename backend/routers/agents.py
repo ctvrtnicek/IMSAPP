@@ -40,6 +40,21 @@ def run_shortage_now(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/agents/status — lightweight "is anything running right now?"
+# check for the topbar indicator. Open to any logged-in user (unlike /runs,
+# which exposes full run detail and stays admin/planner-only) since it's
+# just a boolean signal, not sensitive.
+# ---------------------------------------------------------------------------
+@router.get("/status")
+def agents_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    running = db.query(AgentRun).filter(AgentRun.status == "running").count()
+    return {"running": running > 0, "running_count": running}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/agents/runs  — run history
 # ---------------------------------------------------------------------------
 @router.get("/runs")

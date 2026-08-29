@@ -7,6 +7,7 @@ import {
   updateSupplier,
   deleteSupplier,
 } from '../../api/masterdata.js'
+import { listCountries } from '../../api/network_design.js'
 
 const EMPTY_FORM = {
   code: '',
@@ -15,6 +16,7 @@ const EMPTY_FORM = {
   city: '',
   contact_email: '',
   contact_phone: '',
+  country_code: '',
 }
 
 export default function SuppliersPage({ role }) {
@@ -26,6 +28,7 @@ export default function SuppliersPage({ role }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [countries, setCountries] = useState([])
 
   async function fetchSuppliers() {
     setLoading(true)
@@ -42,6 +45,7 @@ export default function SuppliersPage({ role }) {
 
   useEffect(() => {
     fetchSuppliers()
+    listCountries().then(r => setCountries(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }, [])
 
   function openAdd() {
@@ -59,6 +63,7 @@ export default function SuppliersPage({ role }) {
       city: row.city || '',
       contact_email: row.contact_email || '',
       contact_phone: row.contact_phone || '',
+      country_code: row.country_code || '',
     })
     setShowModal(true)
   }
@@ -71,6 +76,7 @@ export default function SuppliersPage({ role }) {
       city: form.city || null,
       contact_email: form.contact_email || null,
       contact_phone: form.contact_phone || null,
+      country_code: form.country_code || null,
     }
     try {
       if (editingId) {
@@ -101,6 +107,7 @@ export default function SuppliersPage({ role }) {
     { key: 'code', label: 'Code' },
     { key: 'name', label: 'Name' },
     { key: 'country', label: 'Country' },
+    { key: 'country_code', label: 'Country Code' },
     { key: 'city', label: 'City' },
     { key: 'contact_email', label: 'Email' },
     { key: 'active', label: 'Status' },
@@ -162,6 +169,18 @@ export default function SuppliersPage({ role }) {
                 required
                 placeholder="e.g. Italy"
               />
+            </FormRow>
+            <FormRow label="Country Code (Network Design)">
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                value={form.country_code}
+                onChange={(e) => setForm((f) => ({ ...f, country_code: e.target.value }))}
+              >
+                <option value="">— Not linked —</option>
+                {countries.map(c => (
+                  <option key={c.country_code} value={c.country_code}>{c.country_code} — {c.country_name}</option>
+                ))}
+              </select>
             </FormRow>
             <FormRow label="City">
               <input

@@ -5,22 +5,21 @@ All endpoints require authentication.
 Prefix: /api/purchase-orders
 """
 
-import os
-import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
-from document_processor import process_document
 from routers.cost_engine import apply_cost
 from state_activity_map import get_activity_description
 from models import (
+    GoodsReceiptMessage,
     InboundShipment,
     Location,
+    LocationType,
     OrderNumbering,
     Product,
     PurchaseOrder,
@@ -28,6 +27,7 @@ from models import (
     SerialNumber,
     StateHistory,
     Supplier,
+    SystemConfig,
     TerminalState,
     User,
 )
@@ -70,6 +70,8 @@ def po_line_to_out(line: PurchaseOrderLine) -> dict:
         "qty_expected": line.qty_expected,
         "qty_received": line.qty_received,
         "received_date": line.received_date,
+        "price_per_product": line.price_per_product,
+        "price_currency": line.price_currency,
     }
 
 
@@ -125,6 +127,15 @@ def list_pos(
     q = db.query(PurchaseOrder)
     if status_filter:
         q = q.filter(PurchaseOrder.status == status_filter)
+
+    roles = getattr(current_user, "roles_list", [current_user.role])
+    if "supplier" in roles and "admin" not in roles:
+        if current_user.supplier_id:
+            q = q.filter(PurchaseOrder.supplier_id == current_user.supplier_id)
+        else:
+            # Fallback: no supplier assigned — return empty
+            q = q.filter(PurchaseOrder.id == -1)
+
     pos = q.order_by(PurchaseOrder.id.desc()).all()
     return [po_to_out(po, include_lines=False) for po in pos]
 
@@ -169,6 +180,8 @@ def create_po(
             qty_ordered=line_payload.qty_ordered,
             qty_expected=0,
             qty_received=0,
+            price_per_product=line_payload.price_per_product,
+            price_currency=line_payload.price_currency,
         )
         db.add(line)
 
@@ -337,6 +350,8 @@ def import_serials(
             po_id=po.id,
             active=1,
             accumulated_cost=0,
+            shipment_reference=payload.shipment_reference,
+            carrier=payload.carrier,
         )
         db.add(new_serial)
         db.flush()  # get new_serial.id
@@ -391,52 +406,6 @@ def import_serials(
         duplicates=duplicates,
         errors=errors,
     )
-
-
-# ---------------------------------------------------------------------------
-# POST /api/purchase-orders/{id}/extract-document
-# ---------------------------------------------------------------------------
-
-@router.post("/{po_id}/extract-document")
-async def extract_document(
-    po_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Best-effort extraction of serial numbers from an uploaded shipment
-    document (packing list, delivery note, ...) — the supplier portal's
-    "upload document" flow feeds the result into import-serials for review
-    before confirming. Regex-based by default (no external dependencies);
-    OCR/PDF support degrades gracefully if pytesseract/PyMuPDF aren't
-    installed — extraction just finds nothing on those file types.
-    """
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
-    if not po:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
-
-    data = await file.read()
-    suffix = os.path.splitext(file.filename or "")[1]
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = tmp.name
-        result = process_document(tmp_path, file.content_type or "")
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    return {
-        "serials": result.serials,
-        "shipment_reference": result.shipment_reference,
-        "errors": result.errors,
-        "provider_used": result.provider_used,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -522,9 +491,243 @@ def receive_all(
     new_status = recalculate_po_status(po)
     po.status = new_status
 
+    # Generate GR message if enabled and location type is gr_applicable
+    if received_count > 0:
+        gr_enabled_cfg = db.query(SystemConfig).filter(SystemConfig.config_key == "GR_OUTBOUND_MESSAGE_ENABLED").first()
+        if gr_enabled_cfg and gr_enabled_cfg.current_value in ("1", "true"):
+            dest_loc = db.query(Location).filter(Location.id == po.destination_location_id).first()
+            if dest_loc and dest_loc.location_type and dest_loc.location_type.gr_applicable == 1:
+                gr_msg = GoodsReceiptMessage(
+                    po_id=po.id,
+                    location_id=po.destination_location_id,
+                    message_type="GOODS_RECEIPT",
+                    serial_count=received_count,
+                    created_by_user_id=current_user.id,
+                )
+                db.add(gr_msg)
+
     db.commit()
 
     return {"received": received_count, "po_status": new_status}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/purchase-orders/{id}/receive-dialog
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as PydanticBaseModel
+
+
+class ReceiveSerialItem(PydanticBaseModel):
+    serial_id: int
+    state_code: str = "QUARANTINE"  # QUARANTINE or QUALITY_HOLD
+
+
+class ReceiveDialogPayload(PydanticBaseModel):
+    items: List[ReceiveSerialItem]
+
+
+@router.post("/{po_id}/receive-dialog")
+def receive_dialog(
+    po_id: int,
+    payload: ReceiveDialogPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Receive serials with per-serial state selection (QUARANTINE or QUALITY_HOLD)."""
+    ALLOWED_RECEIVE_STATES = {"QUARANTINE", "QUALITY_HOLD"}
+    ALLOWED_RECEIVE_ROLES = {"admin", "supply_planner", "warehouse_user", "supplier", "repair_centre", "inbound_specialist", "rma_manager"}
+
+    roles = getattr(current_user, "roles_list", [current_user.role])
+    if not any(r in ALLOWED_RECEIVE_ROLES for r in roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to receive PO serials")
+
+    for item in payload.items:
+        if item.state_code not in ALLOWED_RECEIVE_STATES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid state_code '{item.state_code}'. Must be QUARANTINE or QUALITY_HOLD")
+
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PO not found")
+
+    received_count = 0
+    quality_hold_serials = []
+
+    for item in payload.items:
+        s = db.query(SerialNumber).filter(SerialNumber.id == item.serial_id, SerialNumber.active == 1).first()
+        if not s:
+            continue
+
+        expecting_state = db.query(TerminalState).filter(TerminalState.code == "EXPECTING").first()
+        if not expecting_state or s.current_state_id != expecting_state.id:
+            continue
+
+        target_state = db.query(TerminalState).filter(TerminalState.code == item.state_code).first()
+        if not target_state:
+            continue
+
+        s.current_state_id = target_state.id
+
+        history = StateHistory(
+            serial_number_id=s.id,
+            state_id=target_state.id,
+            location_id=s.current_location_id,
+            timezone="UTC",
+            actor_type="user",
+            actor_user_id=current_user.id,
+            activity_description=get_activity_description(target_state.code),
+            order_reference=po.po_number,
+        )
+        db.add(history)
+
+        if s.current_location_id:
+            apply_cost(db, s, history, target_state.code, s.current_location_id)
+
+        # Increment qty_received on matching PO line
+        po_line = db.query(PurchaseOrderLine).filter(
+            PurchaseOrderLine.po_id == po_id,
+            PurchaseOrderLine.product_id == s.product_id,
+        ).first()
+        if po_line:
+            po_line.qty_received += 1
+            if not po_line.received_date:
+                po_line.received_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        received_count += 1
+
+        if item.state_code == "QUALITY_HOLD":
+            quality_hold_serials.append(s)
+
+    # Set PO-level received_date
+    if received_count > 0 and not po.received_date:
+        po.received_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    db.flush()
+    db.refresh(po)
+    new_status = recalculate_po_status(po)
+    po.status = new_status
+
+    # Raise Quality Hold alerts
+    if quality_hold_serials:
+        from models import AlertRule, Alert
+        qh_rule = db.query(AlertRule).filter(AlertRule.rule_code == "QUALITY_HOLD_RAISED").first()
+        if qh_rule and qh_rule.enabled:
+            serial_refs = ", ".join(s.serial_number for s in quality_hold_serials)
+            alert = Alert(
+                rule_id=qh_rule.id,
+                severity="Urgent",
+                status="New",
+                reference_id=po.id,
+                reference_type="purchase_order",
+                message=f"Quality Hold on PO {po.po_number}: {len(quality_hold_serials)} serial(s) placed in Quality Hold ({serial_refs})",
+                location_id=po.destination_location_id,
+            )
+            db.add(alert)
+
+    db.commit()
+    return {"received": received_count, "quality_hold": len(quality_hold_serials), "po_status": new_status}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/purchase-orders/{id}/reverse-receive
+# ---------------------------------------------------------------------------
+
+@router.post("/{po_id}/reverse-receive")
+def reverse_receive(
+    po_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reverse receipt of all QUARANTINE serials on this PO (QUARANTINE -> EXPECTING). Admin only."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
+
+    expecting_state = db.query(TerminalState).filter(TerminalState.code == "EXPECTING").first()
+    quarantine_state = db.query(TerminalState).filter(TerminalState.code == "QUARANTINE").first()
+
+    if not expecting_state or not quarantine_state:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Required terminal states (EXPECTING, QUARANTINE) not found",
+        )
+
+    # Find all serials linked to this PO in QUARANTINE state
+    serials = (
+        db.query(SerialNumber)
+        .filter(
+            SerialNumber.po_id == po_id,
+            SerialNumber.current_state_id == quarantine_state.id,
+            SerialNumber.active == 1,
+        )
+        .all()
+    )
+
+    reversed_count = 0
+    for s in serials:
+        # Transition back to EXPECTING
+        s.current_state_id = expecting_state.id
+
+        # Create StateHistory record for reversal
+        history = StateHistory(
+            serial_number_id=s.id,
+            state_id=expecting_state.id,
+            location_id=s.current_location_id,
+            timezone="UTC",
+            actor_type="user",
+            actor_user_id=current_user.id,
+            activity_description="Reverse Goods Receipt — reverted to Expecting",
+            order_reference=po.po_number,
+        )
+        db.add(history)
+
+        # Decrement qty_received on matching PO line
+        po_line = (
+            db.query(PurchaseOrderLine)
+            .filter(
+                PurchaseOrderLine.po_id == po_id,
+                PurchaseOrderLine.product_id == s.product_id,
+            )
+            .first()
+        )
+        if po_line and po_line.qty_received > 0:
+            po_line.qty_received -= 1
+
+        reversed_count += 1
+
+    db.flush()
+
+    # Recalculate PO status
+    db.refresh(po)
+    total_received = sum(line.qty_received for line in po.lines)
+    if total_received == 0:
+        po.status = "Expected"
+        po.received_date = None
+    else:
+        total_ordered = sum(line.qty_ordered for line in po.lines)
+        po.status = "Fully Received" if total_received >= total_ordered else "Partially Received"
+
+    # Generate Reverse GR message if enabled and location type is gr_applicable
+    if reversed_count > 0:
+        gr_enabled_cfg = db.query(SystemConfig).filter(SystemConfig.config_key == "GR_OUTBOUND_MESSAGE_ENABLED").first()
+        if gr_enabled_cfg and gr_enabled_cfg.current_value in ("1", "true"):
+            dest_loc = db.query(Location).filter(Location.id == po.destination_location_id).first()
+            if dest_loc and dest_loc.location_type and dest_loc.location_type.gr_applicable == 1:
+                gr_msg = GoodsReceiptMessage(
+                    po_id=po.id,
+                    location_id=po.destination_location_id,
+                    message_type="REVERSE_GOODS_RECEIPT",
+                    serial_count=reversed_count,
+                    created_by_user_id=current_user.id,
+                )
+                db.add(gr_msg)
+
+    db.commit()
+
+    return {"reversed": reversed_count, "po_status": po.status}
 
 
 # ---------------------------------------------------------------------------
@@ -658,6 +861,81 @@ def get_po_serials(
             "active": s.active,
             "accumulated_cost": s.accumulated_cost or 0,
             "created_at": str(s.created_at) if s.created_at else None,
+            "shipment_reference": s.shipment_reference,
+            "carrier": s.carrier,
         }
 
     return [serial_to_out(s) for s in serials]
+
+
+# ---------------------------------------------------------------------------
+# Phase 3E — Document upload for serial extraction
+# ---------------------------------------------------------------------------
+import os
+import shutil
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "upload_files")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.bmp', '.xls', '.xlsx', '.csv', '.txt'}
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
+
+@router.post("/{po_id}/upload-document")
+async def upload_document_for_extraction(
+    po_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a document for OCR/AI extraction of serial numbers."""
+    ALLOWED_ROLES = {"admin", "supply_planner", "warehouse_user", "supplier", "inbound_specialist"}
+    roles = getattr(current_user, "roles_list", [current_user.role])
+    if not any(r in ALLOWED_ROLES for r in roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for document upload")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(400, f"File type {ext} not allowed. Accepted: {', '.join(sorted(ALLOWED_UPLOAD_EXTENSIONS))}")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, f"File too large. Maximum {MAX_UPLOAD_SIZE // (1024*1024)}MB.")
+
+    from document_processor import process_document
+
+    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(404, "PO not found")
+
+    enabled_cfg = db.query(SystemConfig).filter(SystemConfig.config_key == "AI_DOCUMENT_PROCESSOR_ENABLED").first()
+    if not enabled_cfg or enabled_cfg.current_value not in ("1", "true"):
+        raise HTTPException(400, "Document processor is disabled. Enable in Admin → System Config.")
+
+    provider_cfg = db.query(SystemConfig).filter(SystemConfig.config_key == "DOCUMENT_PROCESSOR_PROVIDER").first()
+    provider = provider_cfg.current_value if provider_cfg else "regex"
+
+    api_key = None
+    if provider == "claude_api":
+        key_cfg = db.query(SystemConfig).filter(SystemConfig.config_key == "ANTHROPIC_API_KEY").first()
+        api_key = key_cfg.current_value if key_cfg else None
+
+    safe_name = f"po{po_id}_{os.path.basename(file.filename).replace(' ', '_')}"
+    dest = os.path.join(UPLOAD_DIR, safe_name)
+    with open(dest, "wb") as f_out:
+        f_out.write(contents)
+
+    result = process_document(dest, file.content_type, provider, api_key)
+
+    try:
+        os.remove(dest)
+    except OSError:
+        pass
+
+    return {
+        "provider": result.provider_used,
+        "serials": result.serials,
+        "shipment_reference": result.shipment_reference,
+        "errors": result.errors,
+        "raw_text_preview": result.raw_text[:500] if result.raw_text else "",
+    }

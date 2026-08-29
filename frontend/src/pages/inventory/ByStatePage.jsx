@@ -7,6 +7,7 @@ const WAREHOUSE_TYPE_COLOURS = {
   'Pre-Warehouse':    { bg: '#dbeafe', color: '#1e40af', border: '#93c5fd' },
   'Refurbished Live': { bg: '#f3e8ff', color: '#6b21a8', border: '#d8b4fe' },
   'End State':        { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5' },
+  'Pegged':           { bg: '#e0f2fe', color: '#0369a1', border: '#7dd3fc' },
 }
 
 function StateBadge({ name, warehouseType }) {
@@ -188,7 +189,9 @@ export default function ByStatePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                  {['Serial Number', 'Product', 'Location', 'Stock Type', 'Cost (€)'].map((h) => (
+                  {['Serial Number', 'Product', 'Location', 'Stock Type', 'Cost (€)',
+                    ...(selectedState === '_PEGGED' ? ['Order Ref'] : [])
+                  ].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '10px 14px', color: '#6b7280', fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                   ))}
                 </tr>
@@ -201,6 +204,13 @@ export default function ByStatePage() {
                     <td style={{ padding: '10px 14px' }}>{row.current_location_code || '—'}</td>
                     <td style={{ padding: '10px 14px' }}>{row.stock_type}</td>
                     <td style={{ padding: '10px 14px' }}>{(row.accumulated_cost || 0).toFixed(2)}</td>
+                    {selectedState === '_PEGGED' && (
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 600, color: '#2563eb' }}>
+                        {row.pegged_to_order_number
+                          ? <a href={`/order/${row.pegged_to_order_number}`} style={{ color: '#2563eb', textDecoration: 'underline' }}>{row.pegged_to_order_number}</a>
+                          : '—'}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

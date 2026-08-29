@@ -97,6 +97,13 @@ def line_to_out(line: OutboundOrderLine) -> dict:
         "product_code": line.product.code if line.product else None,
         "product_name": line.product.name if line.product else None,
         "quantity": line.quantity,
+        "atp_status": line.atp_status,
+        "edd": line.edd,
+        "fulfilling_location_id": line.fulfilling_location_id,
+        "fulfilling_location_code": line.fulfilling_location.code if line.fulfilling_location else None,
+        "bom_assembly_status": line.bom_assembly_status,
+        "atp_reasoning": line.atp_reasoning,
+        "atp_split_details": __import__('json').loads(line.atp_split_details) if line.atp_split_details else None,
     }
 
 
@@ -283,6 +290,14 @@ def create_outbound_order(
 
     db.commit()
     db.refresh(order)
+
+    # Auto-run ATP if order has lines
+    try:
+        from atp_engine import run_atp_for_order
+        run_atp_for_order(db, order.id)
+    except Exception:
+        pass  # ATP failure should not block order creation
+
     return order_to_out(order, include_lines=True)
 
 

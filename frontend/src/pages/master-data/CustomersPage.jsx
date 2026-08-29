@@ -7,6 +7,8 @@ import {
   updateCustomer,
   deleteCustomer,
 } from '../../api/masterdata.js'
+import { listSegments } from '../../api/atp.js'
+import { listCountries } from '../../api/network_design.js'
 
 const CUSTOMER_TYPES = ['Shop', 'Merchant', 'Distributor', 'Partner']
 
@@ -21,6 +23,7 @@ const EMPTY_FORM = {
   delivery_address: '',
   contact_email: '',
   contact_phone: '',
+  segment_id: '',
 }
 
 export default function CustomersPage({ role }) {
@@ -32,6 +35,8 @@ export default function CustomersPage({ role }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [segments, setSegments] = useState([])
+  const [countries, setCountries] = useState([])
 
   async function fetchCustomers() {
     setLoading(true)
@@ -48,6 +53,8 @@ export default function CustomersPage({ role }) {
 
   useEffect(() => {
     fetchCustomers()
+    listSegments().then(r => setSegments(Array.isArray(r.data) ? r.data : [])).catch(() => {})
+    listCountries().then(r => setCountries(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }, [])
 
   function openAdd() {
@@ -69,6 +76,7 @@ export default function CustomersPage({ role }) {
       delivery_address: row.delivery_address || '',
       contact_email: row.contact_email || '',
       contact_phone: row.contact_phone || '',
+      segment_id: row.segment_id ? String(row.segment_id) : '',
     })
     setShowModal(true)
   }
@@ -87,6 +95,7 @@ export default function CustomersPage({ role }) {
       delivery_address: form.delivery_address || null,
       contact_email: form.contact_email || null,
       contact_phone: form.contact_phone || null,
+      segment_id: form.segment_id ? Number(form.segment_id) : null,
     }
     try {
       if (editingId) {
@@ -119,6 +128,7 @@ export default function CustomersPage({ role }) {
     { key: 'customer_type', label: 'Type' },
     { key: 'country', label: 'Country' },
     { key: 'credit_rating', label: 'Credit Rating' },
+    { key: 'segment_name', label: 'Segment' },
     { key: 'active', label: 'Status' },
   ]
 
@@ -177,7 +187,7 @@ export default function CustomersPage({ role }) {
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 required
-                placeholder="e.g. Adyen N.V."
+                placeholder="e.g. Starbucks"
               />
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
@@ -192,14 +202,28 @@ export default function CustomersPage({ role }) {
                   {CUSTOMER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </FormRow>
+              <FormRow label="Segment">
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  value={form.segment_id}
+                  onChange={(e) => setForm((f) => ({ ...f, segment_id: e.target.value }))}
+                >
+                  <option value="">-- No segment --</option>
+                  {segments.map((s) => <option key={s.id} value={s.id}>{s.segment_name} (Priority: {s.priority})</option>)}
+                </select>
+              </FormRow>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <FormRow label="Country" required>
-                <input
+                <select
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                   value={form.country}
                   onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
                   required
-                  placeholder="e.g. Netherlands"
-                />
+                >
+                  <option value="">-- Select country --</option>
+                  {countries.map((c) => <option key={c.country_code} value={c.country_code}>{c.country_code} — {c.country_name}</option>)}
+                </select>
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">

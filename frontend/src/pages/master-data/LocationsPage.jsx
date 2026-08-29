@@ -4,12 +4,14 @@ import Modal from '../../components/Modal.jsx'
 import {
   getLocationTypes,
   createLocationType,
+  updateLocationType,
   getLocations,
   createLocation,
   updateLocation,
   deleteLocation,
 } from '../../api/masterdata.js'
 import { listTransitLanes, createTransitLane, updateTransitLane, deleteTransitLane } from '../../api/supply_planning.js'
+import { listCountries } from '../../api/network_design.js'
 
 const EMPTY_LOCATION_FORM = {
   code: '',
@@ -18,6 +20,7 @@ const EMPTY_LOCATION_FORM = {
   country: '',
   city: '',
   reporting_currency: 'EUR',
+  country_code: '',
 }
 
 export default function LocationsPage({ role }) {
@@ -28,7 +31,8 @@ export default function LocationsPage({ role }) {
   const [ltLoading, setLtLoading] = useState(true)
   const [ltError, setLtError] = useState(null)
   const [showLtModal, setShowLtModal] = useState(false)
-  const [ltForm, setLtForm] = useState({ name: '' })
+  const [ltForm, setLtForm] = useState({ name: '', gr_applicable: 1, accruals_applicable: 'NA' })
+  const [editingLtId, setEditingLtId] = useState(null)
   const [ltSubmitting, setLtSubmitting] = useState(false)
 
   // Locations state
@@ -40,13 +44,16 @@ export default function LocationsPage({ role }) {
   const [editingLocId, setEditingLocId] = useState(null)
   const [locSubmitting, setLocSubmitting] = useState(false)
 
+  // Countries (for country_code dropdown)
+  const [countries, setCountries] = useState([])
+
   // Transit Lanes state
   const [lanes, setLanes] = useState([])
   const [lanesLoading, setLanesLoading] = useState(true)
   const [lanesError, setLanesError] = useState(null)
   const [showLaneModal, setShowLaneModal] = useState(false)
   const [editingLane, setEditingLane] = useState(null)
-  const [laneForm, setLaneForm] = useState({ from_location_id: '', to_location_id: '', transport_mode: 'Road', lead_time_days: '' })
+  const [laneForm, setLaneForm] = useState({ from_location_id: '', to_location_id: '', transport_mode: 'Parcel', lead_time_days: '', lead_time_unit: 'days' })
   const [laneSaving, setLaneSaving] = useState(false)
   const [laneError, setLaneError] = useState(null)
 
@@ -90,22 +97,43 @@ export default function LocationsPage({ role }) {
     fetchLocationTypes()
     fetchLocations()
     fetchLanes()
+    listCountries().then(r => setCountries(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }, [])
 
   // ── Location Type form ─────────────────────────────────────────────────────
   async function handleLtSubmit(e) {
     e.preventDefault()
     setLtSubmitting(true)
+    const payload = {
+      name: ltForm.name,
+      gr_applicable: Number(ltForm.gr_applicable),
+      accruals_applicable: ltForm.accruals_applicable,
+    }
     try {
-      await createLocationType({ name: ltForm.name })
+      if (editingLtId) {
+        await updateLocationType(editingLtId, payload)
+      } else {
+        await createLocationType(payload)
+      }
       setShowLtModal(false)
-      setLtForm({ name: '' })
+      setLtForm({ name: '', gr_applicable: 1, accruals_applicable: 'NA' })
+      setEditingLtId(null)
       await fetchLocationTypes()
     } catch (err) {
-      alert(err?.response?.data?.detail || 'Error creating location type')
+      alert(err?.response?.data?.detail || 'Error saving location type')
     } finally {
       setLtSubmitting(false)
     }
+  }
+
+  function openEditLocationType(row) {
+    setEditingLtId(row.id)
+    setLtForm({
+      name: row.name,
+      gr_applicable: row.gr_applicable ?? 1,
+      accruals_applicable: row.accruals_applicable || 'NA',
+    })
+    setShowLtModal(true)
   }
 
   // ── Location form ──────────────────────────────────────────────────────────
@@ -124,6 +152,7 @@ export default function LocationsPage({ role }) {
       country: row.country,
       city: row.city || '',
       reporting_currency: row.reporting_currency,
+      country_code: row.country_code || '',
     })
     setShowLocModal(true)
   }
@@ -135,6 +164,7 @@ export default function LocationsPage({ role }) {
       ...locForm,
       location_type_id: parseInt(locForm.location_type_id),
       city: locForm.city || null,
+      country_code: locForm.country_code || null,
     }
     try {
       if (editingLocId) {
@@ -164,7 +194,7 @@ export default function LocationsPage({ role }) {
   // ── Transit Lane handlers ─────────────────────────────────────────────────
   function openNewLane() {
     setEditingLane(null)
-    setLaneForm({ from_location_id: '', to_location_id: '', transport_mode: 'Road', lead_time_days: '' })
+    setLaneForm({ from_location_id: '', to_location_id: '', transport_mode: 'Parcel', lead_time_days: '', lead_time_unit: 'days' })
     setLaneError(null)
     setShowLaneModal(true)
   }
@@ -176,6 +206,7 @@ export default function LocationsPage({ role }) {
       to_location_id: String(lane.to_location_id),
       transport_mode: lane.transport_mode,
       lead_time_days: String(lane.lead_time_days),
+      lead_time_unit: lane.lead_time_unit || 'days',
     })
     setLaneError(null)
     setShowLaneModal(true)
@@ -216,6 +247,8 @@ export default function LocationsPage({ role }) {
   // ── Table columns ──────────────────────────────────────────────────────────
   const ltColumns = [
     { key: 'name', label: 'Name' },
+    { key: 'gr_applicable', label: 'GR Applicable' },
+    { key: 'accruals_applicable', label: 'Accruals' },
     { key: 'active', label: 'Status' },
   ]
 
@@ -224,6 +257,7 @@ export default function LocationsPage({ role }) {
     { key: 'name', label: 'Name' },
     { key: 'location_type_name', label: 'Type' },
     { key: 'country', label: 'Country' },
+    { key: 'country_code', label: 'Country Code' },
     { key: 'city', label: 'City' },
     { key: 'reporting_currency', label: 'Currency' },
     { key: 'active', label: 'Status' },
@@ -250,6 +284,7 @@ export default function LocationsPage({ role }) {
           columns={ltColumns}
           rows={locationTypes}
           loading={ltLoading}
+          onEdit={isAdmin ? openEditLocationType : undefined}
           emptyMessage="No location types found."
         />
       </section>
@@ -281,22 +316,46 @@ export default function LocationsPage({ role }) {
 
       {/* ── Location Type modal ────────────────────────────────────────── */}
       {showLtModal && (
-        <Modal title="Add Location Type" onClose={() => setShowLtModal(false)}>
+        <Modal title={editingLtId ? 'Edit Location Type' : 'Add Location Type'} onClose={() => { setShowLtModal(false); setEditingLtId(null) }}>
           <form onSubmit={handleLtSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 value={ltForm.name}
-                onChange={(e) => setLtForm({ name: e.target.value })}
+                onChange={(e) => setLtForm(f => ({ ...f, name: e.target.value }))}
                 required
                 placeholder="e.g. Warehouse"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">GR Applicable</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                value={ltForm.gr_applicable}
+                onChange={(e) => setLtForm(f => ({ ...f, gr_applicable: Number(e.target.value) }))}
+              >
+                <option value={1}>Yes</option>
+                <option value={0}>No</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Accruals</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                value={ltForm.accruals_applicable}
+                onChange={(e) => setLtForm(f => ({ ...f, accruals_applicable: e.target.value }))}
+              >
+                <option value="NA">NA</option>
+                <option value="WEEKLY">WEEKLY</option>
+                <option value="MONTHLY">MONTHLY</option>
+                <option value="QUARTERLY">QUARTERLY</option>
+              </select>
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setShowLtModal(false)}
+                onClick={() => { setShowLtModal(false); setEditingLtId(null) }}
                 className="text-sm px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
               >
                 Cancel
@@ -425,6 +484,24 @@ export default function LocationsPage({ role }) {
                 placeholder="e.g. Netherlands"
               />
             </FormRow>
+            <FormRow label="Country Code (Network Design)">
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                value={locForm.country_code}
+                onChange={(e) => {
+                  const cc = e.target.value
+                  setLocForm((f) => {
+                    const matched = countries.find(c => c.country_code === cc)
+                    return { ...f, country_code: cc, reporting_currency: matched?.currency || f.reporting_currency }
+                  })
+                }}
+              >
+                <option value="">— Not linked —</option>
+                {countries.map(c => (
+                  <option key={c.country_code} value={c.country_code}>{c.country_code} — {c.country_name}</option>
+                ))}
+              </select>
+            </FormRow>
             <FormRow label="City">
               <input
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -442,6 +519,13 @@ export default function LocationsPage({ role }) {
                 placeholder="e.g. EUR"
                 maxLength={3}
               />
+              {(() => {
+                const matchedCountry = countries.find(c => c.country_code === locForm.country_code)
+                if (matchedCountry?.currency && locForm.reporting_currency && matchedCountry.currency !== locForm.reporting_currency) {
+                  return <p style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>Note: Country currency is {matchedCountry.currency}</p>
+                }
+                return null
+              })()}
             </FormRow>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -497,24 +581,41 @@ export default function LocationsPage({ role }) {
               </select>
             </FormRow>
             <FormRow label="Transport Mode" required>
-              <input
+              <select
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 value={laneForm.transport_mode}
                 onChange={(e) => setLaneForm((f) => ({ ...f, transport_mode: e.target.value }))}
                 required
-                placeholder="e.g. Road"
-              />
+              >
+                <option value="Parcel">Parcel</option>
+                <option value="Road">Road</option>
+                <option value="Air">Air</option>
+                <option value="Ocean">Ocean</option>
+              </select>
             </FormRow>
-            <FormRow label="Lead Time (days)" required>
-              <input
-                type="number"
-                min="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                value={laneForm.lead_time_days}
-                onChange={(e) => setLaneForm((f) => ({ ...f, lead_time_days: e.target.value }))}
-                required
-                placeholder="e.g. 5"
-              />
+            <FormRow label="Lead Time" required>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  style={{ flex: 1 }}
+                  value={laneForm.lead_time_days}
+                  onChange={(e) => setLaneForm((f) => ({ ...f, lead_time_days: e.target.value }))}
+                  required
+                  placeholder="e.g. 5"
+                />
+                <select
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  style={{ width: 90 }}
+                  value={laneForm.lead_time_unit}
+                  onChange={(e) => setLaneForm((f) => ({ ...f, lead_time_unit: e.target.value }))}
+                >
+                  <option value="days">Days</option>
+                  <option value="hours">Hours</option>
+                </select>
+              </div>
             </FormRow>
             {laneError && <p className="text-red-600 text-sm">{laneError}</p>}
             <div className="flex justify-end gap-2 pt-2">

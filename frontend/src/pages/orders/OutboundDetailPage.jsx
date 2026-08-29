@@ -12,6 +12,24 @@ import {
 import { getLocations, getProducts } from '../../api/masterdata.js'
 import { listWorkOrders } from '../../api/work_orders.js'
 import { listClaims, createClaim, listClaimTypes, uploadClaimAttachment } from '../../api/claims.js'
+import { runATP, unpegOrder } from '../../api/atp.js'
+
+// ── ATP status badge colours ─────────────────────────────────────────────────
+const ATP_STATUS_STYLES = {
+  ATP_OK:      { backgroundColor: '#16a34a', color: '#fff' },
+  ATP_PARTIAL: { backgroundColor: '#ea580c', color: '#fff' },
+  ATP_NONE:    { backgroundColor: '#dc2626', color: '#fff' },
+}
+
+function ATPStatusBadge({ status }) {
+  if (!status) return null
+  const style = ATP_STATUS_STYLES[status] || { backgroundColor: '#6b7280', color: '#fff' }
+  return (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style={style}>
+      {status.replace('ATP_', 'ATP: ')}
+    </span>
+  )
+}
 
 // ── Type badge colours ───────────────────────────────────────────────────────
 const TYPE_STYLES = {
@@ -95,6 +113,8 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
   const [claimFile, setClaimFile] = useState(null)
   const [claimError, setClaimError] = useState(null)
   const [claimSaving, setClaimSaving] = useState(false)
+  const [atpLoading, setAtpLoading] = useState(false)
+  const [showAtpReasoning, setShowAtpReasoning] = useState(false)
 
   useEffect(() => {
     loadOrder()
@@ -123,6 +143,28 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  // ── Action: Run ATP ────────────────────────────────────────────────────────
+  async function handleRunATP() {
+    setAtpLoading(true); setActionError(null)
+    try {
+      await runATP(orderId)
+      await loadOrder()
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'ATP run failed')
+    } finally { setAtpLoading(false) }
+  }
+
+  async function handleUnpeg() {
+    if (!confirm('Unpeg all serials from this order? This releases inventory for other orders.')) return
+    setAtpLoading(true); setActionError(null)
+    try {
+      await unpegOrder(orderId)
+      await loadOrder()
+    } catch (err) {
+      setActionError(err.response?.data?.detail || 'Unpeg failed')
+    } finally { setAtpLoading(false) }
   }
 
   // ── Action: Issue ──────────────────────────────────────────────────────────
@@ -201,9 +243,10 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
   async function openAllocateModal() {
     setAllocFetchError(null)
     setSelectedSerials({})
+    const firstLine = order?.lines?.[0]
     setAllocProductId('')
     setAllocLocationId('')
-    setAllocLineId(order?.lines?.[0]?.id ? String(order.lines[0].id) : '')
+    setAllocLineId(firstLine?.id ? String(firstLine.id) : '')
     setAvailableSerials([])
     try {
       const [locRes, prodRes] = await Promise.all([getLocations(), getProducts()])
@@ -212,8 +255,14 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
     } catch {
       // ignore
     }
-    // Pre-set fulfilling location if set on order
-    if (order?.fulfilling_location_id) {
+    // Pre-set product from order line
+    if (firstLine?.product_id) {
+      setAllocProductId(String(firstLine.product_id))
+    }
+    // Pre-set fulfilling location: prefer line-level ATP result, then order-level
+    if (firstLine?.fulfilling_location_id) {
+      setAllocLocationId(String(firstLine.fulfilling_location_id))
+    } else if (order?.fulfilling_location_id) {
       setAllocLocationId(String(order.fulfilling_location_id))
     }
     setShowAllocateModal(true)
@@ -349,6 +398,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
               <h1 className="text-2xl font-bold text-gray-800 font-mono">{order.order_number}</h1>
               <TypeBadge type={order.order_type} />
               <StatusBadge status={order.status} />
+              {order.atp_status && <ATPStatusBadge status={order.atp_status} />}
             </div>
             <div className="flex flex-col gap-1 text-sm text-gray-600">
               {order.customer_name && (
@@ -416,6 +466,26 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 style={{ backgroundColor: '#fff', color: '#dc2626' }}
               >
                 Cancel
+              </button>
+            )}
+            {(isAdmin || isPlanner) && !['Cancelled', 'Closed'].includes(order?.status) && (
+              <button
+                onClick={handleRunATP}
+                disabled={atpLoading || actionLoading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition"
+                style={{ backgroundColor: '#fff', border: '1px solid var(--cadet-dark)', color: 'var(--cadet-dark)', opacity: atpLoading ? 0.6 : 1 }}
+              >
+                {atpLoading ? 'Running ATP...' : 'Run ATP'}
+              </button>
+            )}
+            {(isAdmin || isPlanner) && order?.atp_feasible === 1 && !['Shipped', 'Delivered', 'Cancelled', 'Closed'].includes(order?.status) && (
+              <button
+                onClick={handleUnpeg}
+                disabled={atpLoading || actionLoading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition"
+                style={{ backgroundColor: '#fff', border: '1px solid #f97316', color: '#f97316', opacity: atpLoading ? 0.6 : 1 }}
+              >
+                Unpeg
               </button>
             )}
           </div>
@@ -533,6 +603,9 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 <th className="px-3 py-2 font-semibold">Product</th>
                 <th className="px-3 py-2 font-semibold">Quantity</th>
                 <th className="px-3 py-2 font-semibold">Allocated</th>
+                <th className="px-3 py-2 font-semibold">ATP Status</th>
+                <th className="px-3 py-2 font-semibold">EDD</th>
+                <th className="px-3 py-2 font-semibold">Fulfilling Loc</th>
               </tr>
             </thead>
             <tbody>
@@ -552,6 +625,33 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                         {allocCount} / {line.quantity}
                       </span>
                     </td>
+                    <td className="px-3 py-2">
+                      {line.atp_status && <ATPStatusBadge status={line.atp_status} />}
+                    </td>
+                    <td className="px-3 py-2 text-gray-600 text-xs">
+                      {line.atp_split_details && line.atp_split_details.length > 1 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {line.atp_split_details.map((s, i) => (
+                            <span key={i}>{s.edd} <span style={{ color: '#9ca3af' }}>({s.qty}x)</span></span>
+                          ))}
+                        </div>
+                      ) : (line.edd || '—')}
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {line.atp_split_details && line.atp_split_details.length > 1 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {line.atp_split_details.map((s, i) => (
+                            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span style={{ fontWeight: 600, color: 'var(--cadet-dark)' }}>{s.location_code}</span>
+                              <span style={{ color: '#9ca3af' }}>× {s.qty}</span>
+                              <span style={{ color: '#6b7280', fontSize: 10 }}>({s.transit_days}d)</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ color: '#6b7280' }}>{line.fulfilling_location_code || '—'}</span>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
@@ -561,6 +661,32 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
           <p className="text-gray-400 text-sm">No lines.</p>
         )}
       </div>
+
+      {/* ATP Reasoning (collapsible) */}
+      {order.lines?.some(l => l.atp_reasoning) && (
+        <div className="bg-white rounded-2xl shadow mb-4">
+          <button
+            onClick={() => setShowAtpReasoning(prev => !prev)}
+            className="w-full px-6 py-4 flex items-center justify-between text-left"
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+          >
+            <h3 className="font-semibold text-gray-800" style={{ margin: 0 }}>ATP Reasoning</h3>
+            <span style={{ color: '#9ca3af', fontSize: 18 }}>{showAtpReasoning ? '▾' : '▸'}</span>
+          </button>
+          {showAtpReasoning && (
+            <div className="px-6 pb-5">
+              {order.lines.filter(l => l.atp_reasoning).map(line => (
+                <div key={line.id} className="mb-3">
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Line {line.line_number}: {line.product_code}</p>
+                  <pre style={{ fontSize: 12, color: '#374151', background: '#f8fafc', borderRadius: 8, padding: '10px 14px', whiteSpace: 'pre-wrap', lineHeight: 1.6, border: '1px solid #e5e7eb' }}>
+                    {line.atp_reasoning}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Allocated Serials */}
       {order.allocated_serials && order.allocated_serials.length > 0 && (
@@ -575,6 +701,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 <th className="px-3 py-2 font-semibold">Product</th>
                 <th className="px-3 py-2 font-semibold">State</th>
                 <th className="px-3 py-2 font-semibold">Location</th>
+                <th className="px-3 py-2 font-semibold">Pegged</th>
               </tr>
             </thead>
             <tbody>
@@ -584,6 +711,11 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                   <td className="px-3 py-2 text-gray-600">{s.product_code || '—'}</td>
                   <td className="px-3 py-2 text-gray-600">{s.current_state_code || '—'}</td>
                   <td className="px-3 py-2 text-gray-600">{s.current_location_code || '—'}</td>
+                  <td className="px-3 py-2">
+                    {s.pegged && (
+                      <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }} title="Pegged to this order" />
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

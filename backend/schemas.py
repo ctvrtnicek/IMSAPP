@@ -30,11 +30,15 @@ class UserOut(BaseModel):
 
 class LocationTypeCreate(BaseModel):
     name: str
+    gr_applicable: int = 1
+    accruals_applicable: str = "NA"
 
 
 class LocationTypeOut(BaseModel):
     id: int
     name: str
+    gr_applicable: int
+    accruals_applicable: str
     active: int
 
     model_config = {"from_attributes": True}
@@ -49,6 +53,7 @@ class LocationCreate(BaseModel):
     country: str
     city: Optional[str] = None
     reporting_currency: str = "EUR"
+    country_code: Optional[str] = None
 
 
 class LocationUpdate(BaseModel):
@@ -59,6 +64,7 @@ class LocationUpdate(BaseModel):
     city: Optional[str] = None
     reporting_currency: Optional[str] = None
     active: Optional[int] = None
+    country_code: Optional[str] = None
 
 
 class LocationOut(BaseModel):
@@ -71,6 +77,9 @@ class LocationOut(BaseModel):
     reporting_currency: str
     active: int
     location_type_name: Optional[str] = None
+    country_code: Optional[str] = None
+    gr_applicable: Optional[int] = None
+    accruals_applicable: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -84,6 +93,7 @@ class SupplierCreate(BaseModel):
     city: Optional[str] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+    country_code: Optional[str] = None
 
 
 class SupplierUpdate(BaseModel):
@@ -94,6 +104,7 @@ class SupplierUpdate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     active: Optional[int] = None
+    country_code: Optional[str] = None
 
 
 class SupplierOut(BaseModel):
@@ -105,6 +116,7 @@ class SupplierOut(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     active: int
+    country_code: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -210,6 +222,7 @@ class CustomerCreate(BaseModel):
     delivery_address: Optional[str] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+    segment_id: Optional[int] = None
 
 
 class CustomerUpdate(BaseModel):
@@ -224,6 +237,7 @@ class CustomerUpdate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     active: Optional[int] = None
+    segment_id: Optional[int] = None
 
 
 class CustomerOut(BaseModel):
@@ -239,6 +253,8 @@ class CustomerOut(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     active: int
+    segment_id: Optional[int] = None
+    segment_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -351,6 +367,8 @@ class NonSerialisedCreate(BaseModel):
 class POLineCreate(BaseModel):
     product_id: int
     qty_ordered: int
+    price_per_product: Optional[float] = None
+    price_currency: Optional[str] = None
 
 
 class POLineOut(BaseModel):

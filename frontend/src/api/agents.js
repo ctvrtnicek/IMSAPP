@@ -7,6 +7,7 @@ api.interceptors.request.use(config => {
   return config
 })
 
+export const getAgentStatus = () => api.get('/agents/status')
 export const runAgentNow    = (agentName) => api.post(`/agents/${agentName}/run-now`)
 export const getAgentRuns   = (limit = 50) => api.get('/agents/runs', { params: { limit } })
 export const getRunLogs     = (runId) => api.get(`/agents/runs/${runId}/logs`)

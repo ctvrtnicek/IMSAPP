@@ -10,7 +10,9 @@ export const importSerials = (id, data) => api.post(`/purchase-orders/${id}/impo
 export const receiveAll = (id) => api.post(`/purchase-orders/${id}/receive-all`)
 export const receiveSerial = (id, serialId) => api.post(`/purchase-orders/${id}/receive-serial/${serialId}`)
 export const getPOSerials = (id) => api.get(`/purchase-orders/${id}/serials`)
-export const uploadDocumentForExtraction = (id, file) => {
+export const reverseReceive = (id) => api.post(`/purchase-orders/${id}/reverse-receive`)
+export const receiveDialog = (id, data) => api.post(`/purchase-orders/${id}/receive-dialog`, data)
+export const uploadDocumentForExtraction = (poId, file) => {
   const fd = new FormData(); fd.append('file', file)
-  return api.post(`/purchase-orders/${id}/extract-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+  return api.post(`/purchase-orders/${poId}/upload-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
 }

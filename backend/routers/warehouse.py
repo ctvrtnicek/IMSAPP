@@ -29,12 +29,14 @@ class StateUpdatePayload(BaseModel):
     to_state_code: str
     location_id: Optional[int] = None
     notes: Optional[str] = None
+    firmware_id: Optional[int] = None
 
 
 class SingleStateUpdatePayload(BaseModel):
     serial_id: int
     to_state_code: str
     location_id: Optional[int] = None
+    firmware_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -69,11 +71,16 @@ def _apply_state_change(
     current_user: User,
     db: Session,
     order_reference: Optional[str] = None,
+    firmware_id: Optional[int] = None,
 ) -> None:
     effective_location_id = location_id if location_id is not None else serial.current_location_id
     serial.current_state_id = target_state.id
     if location_id is not None:
         serial.current_location_id = location_id
+    if firmware_id and target_state.code == "ENCRYPTION_KEY_LOADED":
+        from datetime import datetime
+        serial.firmware_id = firmware_id
+        serial.firmware_applied_at = datetime.utcnow()
 
     history = StateHistory(
         serial_number_id=serial.id,
@@ -162,6 +169,7 @@ def bulk_state_update(
                 notes=payload.notes,
                 current_user=current_user,
                 db=db,
+                firmware_id=payload.firmware_id,
             )
             updated += 1
         except Exception as exc:
@@ -213,6 +221,7 @@ def single_state_update(
         notes=payload.notes,
         current_user=current_user,
         db=db,
+        firmware_id=payload.firmware_id,
     )
     db.commit()
     db.refresh(serial)

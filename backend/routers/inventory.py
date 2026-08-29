@@ -15,10 +15,12 @@ from auth import get_current_user
 from database import get_db
 from models import (
     Location,
+    LocationType,
     NonSerialisedInventory,
     OutboundOrder,
     Product,
     PurchaseOrder,
+    Firmware,
     SerialNumber,
     StateHistory,
     Supplier,
@@ -63,6 +65,12 @@ def serial_to_out(s: SerialNumber, latest_history: StateHistory = None) -> dict:
         "key_loaded": s.key_loaded,
         "active": s.active,
         "accumulated_cost": s.accumulated_cost or 0,
+        "firmware_id": s.firmware_id,
+        "firmware_name": s.firmware.firmware_name if s.firmware_id and s.firmware else None,
+        "firmware_version": s.firmware.version if s.firmware_id and s.firmware else None,
+        "firmware_applied_at": str(s.firmware_applied_at) if s.firmware_applied_at else None,
+        "pegged_to_order_id": s.pegged_to_order_id,
+        "pegged_to_order_number": None,
         "created_at": str(s.created_at) if s.created_at else None,
         # Latest state transition date + location (for All Terminals view)
         "latest_date": str(lh.datetime_utc) if lh and lh.datetime_utc else None,
@@ -140,7 +148,9 @@ def list_serials(
     """List serial numbers with optional filters."""
     q = db.query(SerialNumber).filter(SerialNumber.active == 1)
 
-    if state_code:
+    if state_code == "_PEGGED":
+        q = q.filter(SerialNumber.pegged_to_order_id.isnot(None))
+    elif state_code:
         q = q.join(TerminalState, SerialNumber.current_state_id == TerminalState.id).filter(
             TerminalState.code == state_code
         )
@@ -179,7 +189,18 @@ def list_serials(
         for lh in latest_rows:
             latest_map[lh.serial_number_id] = lh
 
-    return [serial_to_out(s, latest_map.get(s.id)) for s in rows]
+    results = [serial_to_out(s, latest_map.get(s.id)) for s in rows]
+
+    pegged_ids = [r["pegged_to_order_id"] for r in results if r.get("pegged_to_order_id")]
+    if pegged_ids:
+        from models import OutboundOrder
+        orders = db.query(OutboundOrder.id, OutboundOrder.order_number).filter(OutboundOrder.id.in_(set(pegged_ids))).all()
+        order_map = {o.id: o.order_number for o in orders}
+        for r in results:
+            if r.get("pegged_to_order_id"):
+                r["pegged_to_order_number"] = order_map.get(r["pegged_to_order_id"])
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -224,18 +245,27 @@ def by_state(
         db.query(
             TerminalState.code.label("state_code"),
             TerminalState.display_name.label("state_name"),
+            TerminalState.warehouse_type.label("warehouse_type"),
             func.count(SerialNumber.id).label("count"),
         )
         .join(SerialNumber, SerialNumber.current_state_id == TerminalState.id)
         .filter(SerialNumber.active == 1)
-        .group_by(TerminalState.id, TerminalState.code, TerminalState.display_name)
+        .group_by(TerminalState.id, TerminalState.code, TerminalState.display_name, TerminalState.warehouse_type)
         .order_by(func.count(SerialNumber.id).desc())
         .all()
     )
-    return [
-        {"state_code": r.state_code, "state_name": r.state_name, "count": r.count}
+    result = [
+        {"state_code": r.state_code, "state_name": r.state_name, "warehouse_type": r.warehouse_type, "count": r.count}
         for r in rows
     ]
+
+    pegged_count = db.query(func.count(SerialNumber.id)).filter(
+        SerialNumber.active == 1, SerialNumber.pegged_to_order_id.isnot(None)
+    ).scalar() or 0
+    if pegged_count > 0:
+        result.append({"state_code": "_PEGGED", "state_name": "Pegged", "warehouse_type": "Pegged", "count": pegged_count})
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +340,57 @@ def by_location(
                     "non_serialised_count": ns_count,
                     "total_cost": cost_map.get(loc_id, 0),
                 })
+
+    # Enrich with accruals data
+    from datetime import date, timedelta
+    today = date.today()
+    first_of_month = today.replace(day=1).isoformat()
+
+    # Pre-fetch location types and reporting currencies for all locations in results
+    loc_ids = [r["location_id"] for r in results]
+    loc_objs = {loc.id: loc for loc in db.query(Location).filter(Location.id.in_(loc_ids)).all()} if loc_ids else {}
+
+    # Sum reporting_currency_equiv from StateHistory this month per location
+    accruals_rows = (
+        db.query(
+            StateHistory.location_id,
+            func.sum(StateHistory.reporting_currency_equiv).label("total_equiv"),
+        )
+        .filter(
+            StateHistory.location_id.in_(loc_ids),
+            StateHistory.datetime_utc >= first_of_month,
+            StateHistory.reporting_currency_equiv.isnot(None),
+        )
+        .group_by(StateHistory.location_id)
+        .all()
+    ) if loc_ids else []
+    accruals_map = {r.location_id: float(r.total_equiv or 0) for r in accruals_rows}
+
+    for r in results:
+        loc = loc_objs.get(r["location_id"])
+        lt = loc.location_type if loc else None
+        accruals_applicable = lt.accruals_applicable if lt else "NA"
+        r["accruals_applicable"] = accruals_applicable
+        r["reporting_currency"] = loc.reporting_currency if loc else "EUR"
+        r["expected_accruals"] = accruals_map.get(r["location_id"], 0)
+
+        # Compute next_accruals_date
+        if accruals_applicable == "WEEKLY":
+            days_ahead = 7 - today.weekday()  # Monday = 0
+            r["next_accruals_date"] = (today + timedelta(days=days_ahead)).isoformat()
+        elif accruals_applicable == "MONTHLY":
+            if today.month == 12:
+                r["next_accruals_date"] = date(today.year + 1, 1, 1).isoformat()
+            else:
+                r["next_accruals_date"] = date(today.year, today.month + 1, 1).isoformat()
+        elif accruals_applicable == "QUARTERLY":
+            quarter_start_month = ((today.month - 1) // 3 + 1) * 3 + 1
+            if quarter_start_month > 12:
+                r["next_accruals_date"] = date(today.year + 1, quarter_start_month - 12, 1).isoformat()
+            else:
+                r["next_accruals_date"] = date(today.year, quarter_start_month, 1).isoformat()
+        else:
+            r["next_accruals_date"] = None
 
     results.sort(key=lambda x: x["serialised_count"], reverse=True)
     return results

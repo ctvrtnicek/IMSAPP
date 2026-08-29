@@ -5,6 +5,10 @@ import {
   getRepairOrder,
   updateRepairOrder,
 } from '../../api/returns.js'
+import {
+  uploadRepairDocument,
+  listRepairDocuments,
+} from '../../api/repair_documents.js'
 
 // ── Status badge colours ──────────────────────────────────────────────────────
 const REPAIR_STATUS_STYLES = {
@@ -30,6 +34,111 @@ function StatusBadge({ status }) {
     <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style={style}>
       {status}
     </span>
+  )
+}
+
+// ===========================================================================
+// RepairDocumentsSection — upload & list repair documents
+// ===========================================================================
+function RepairDocumentsSection({ repairId }) {
+  const [docs, setDocs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => { loadDocs() }, [repairId])
+
+  async function loadDocs() {
+    setLoading(true)
+    try {
+      const res = await listRepairDocuments(repairId)
+      setDocs(res.data || [])
+    } catch {
+      // endpoint may not exist yet — silently ignore
+      setDocs([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    // Max 2 MB
+    if (file.size > 2 * 1024 * 1024) {
+      setError('File must be under 2 MB.')
+      return
+    }
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png']
+    if (!allowed.includes(file.type)) {
+      setError('Only PDF, JPG, and PNG files are accepted.')
+      return
+    }
+    setError(null)
+    setUploading(true)
+    try {
+      await uploadRepairDocument(repairId, file)
+      loadDocs()
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to upload document.')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow p-6 mb-4">
+      <h2 className="text-sm font-semibold text-gray-600 uppercase mb-3">Documents</h2>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-3">
+          {error}
+        </div>
+      )}
+
+      <div className="mb-3">
+        <label
+          className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition inline-block"
+          style={{ backgroundColor: 'var(--cadet-dark)', cursor: uploading ? 'default' : 'pointer', opacity: uploading ? 0.65 : 1 }}
+        >
+          {uploading ? 'Uploading...' : 'Upload Document'}
+          <input
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png"
+            onChange={handleUpload}
+            disabled={uploading}
+            style={{ display: 'none' }}
+          />
+        </label>
+        <span className="text-xs text-gray-400 ml-2">PDF, JPG, PNG — max 2 MB</span>
+      </div>
+
+      {loading ? (
+        <p className="text-gray-500 text-sm">Loading documents...</p>
+      ) : docs.length === 0 ? (
+        <p className="text-gray-400 text-sm">No documents uploaded.</p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 text-xs uppercase border-b border-gray-100">
+              <th className="px-3 py-2 font-semibold">Filename</th>
+              <th className="px-3 py-2 font-semibold">Date</th>
+              <th className="px-3 py-2 font-semibold">Uploaded By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map((d, i) => (
+              <tr key={i} className="border-b border-gray-50">
+                <td className="px-3 py-2 text-gray-800">{d.file_name}</td>
+                <td className="px-3 py-2 text-gray-600">{d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '--'}</td>
+                <td className="px-3 py-2 text-gray-600">{d.uploaded_by || '--'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   )
 }
 
@@ -339,6 +448,9 @@ export function RepairDetailPanel({ repairId, onBack, role }) {
           </div>
         )}
       </div>
+
+      {/* Documents section */}
+      <RepairDocumentsSection repairId={repairId} />
 
       {/* Serials table */}
       <div className="bg-white rounded-2xl shadow p-6 mb-4">

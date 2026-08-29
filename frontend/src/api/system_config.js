@@ -9,3 +9,4 @@ api.interceptors.request.use(config => {
 
 export const listSystemConfig = () => api.get('/system-config')
 export const updateSystemConfig = (key, value) => api.put(`/system-config/${key}`, { current_value: String(value) })
+export const runAgentNow = (agentName) => api.post(`/agents/${agentName}/run-now`)

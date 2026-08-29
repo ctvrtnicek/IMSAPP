@@ -4,6 +4,8 @@ import {
   getPO,
   issuePO,
   receiveAll,
+  receiveDialog,
+  reverseReceive,
   importSerials,
   getPOSerials,
 } from '../../api/purchase_orders.js'
@@ -26,6 +28,7 @@ const STATUS_STYLES = {
   'Fully Received':    { backgroundColor: '#16a34a', color: '#fff' },
   Closed:              { backgroundColor: '#374151', color: '#fff' },
   Cancelled:           { backgroundColor: '#dc2626', color: '#fff' },
+  'Quality Hold':      { backgroundColor: '#dc2626', color: '#fff' },
 }
 
 function StatusBadge({ status }) {
@@ -121,7 +124,9 @@ function ImportSerialsModal({ poId, onClose, onSuccess }) {
     try {
       const res = await importSerials(poId, payload)
       setResult(res.data)
-      onSuccess()
+      if (res.data.created > 0) {
+        onSuccess()
+      }
     } catch (e) {
       setError(e.response?.data?.detail || 'Import failed')
     } finally {
@@ -249,6 +254,8 @@ export default function PODetailPage({ poId, role, onBack }) {
   const [claimFile, setClaimFile] = useState(null)
   const [claimError, setClaimError] = useState(null)
   const [claimSaving, setClaimSaving] = useState(false)
+  const [showReceiveDialog, setShowReceiveDialog] = useState(false)
+  const [receiveItems, setReceiveItems] = useState([])
 
   useEffect(() => {
     loadPO()
@@ -296,6 +303,20 @@ export default function PODetailPage({ poId, role, onBack }) {
       loadPO()
     } catch (e) {
       setActionError(e.response?.data?.detail || 'Failed to receive all')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleReverseReceive() {
+    if (!confirm('Reverse Goods Receipt? This will move all received serials back to EXPECTING state.')) return
+    setActionError(null)
+    setActionLoading(true)
+    try {
+      await reverseReceive(poId)
+      loadPO()
+    } catch (e) {
+      setActionError(e.response?.data?.detail || 'Failed to reverse goods receipt')
     } finally {
       setActionLoading(false)
     }
@@ -355,6 +376,9 @@ export default function PODetailPage({ poId, role, onBack }) {
   const canReceiveAll =
     (po.status === 'Expected' || po.status === 'Partially Received') &&
     (role === 'admin' || role === 'warehouse_user')
+  const canReverseGR =
+    (po.status === 'Fully Received' || po.status === 'Partially Received') &&
+    role === 'admin'
   const canImport =
     (po.status === 'Issued' || po.status === 'Expected') &&
     (role === 'admin' || role === 'supply_planner' || role === 'warehouse_user' || role === 'supplier')
@@ -402,12 +426,31 @@ export default function PODetailPage({ poId, role, onBack }) {
               )}
               {canReceiveAll && (
                 <button
-                  onClick={handleReceiveAll}
+                  onClick={() => {
+                    const expecting = serials.filter(s => s.current_state_code === 'EXPECTING')
+                    setReceiveItems(expecting.map(s => ({
+                      serial_id: s.id,
+                      serial_number: s.serial_number,
+                      product_code: s.product_code,
+                      state_code: 'QUARANTINE',
+                    })))
+                    setShowReceiveDialog(true)
+                  }}
                   disabled={actionLoading}
                   className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition"
                   style={{ backgroundColor: actionLoading ? '#86efac' : '#16a34a' }}
                 >
-                  Receive All
+                  Goods Receipt
+                </button>
+              )}
+              {canReverseGR && (
+                <button
+                  onClick={handleReverseReceive}
+                  disabled={actionLoading}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition"
+                  style={{ backgroundColor: actionLoading ? '#fca5a5' : '#dc2626' }}
+                >
+                  Reverse GR
                 </button>
               )}
             </div>
@@ -470,6 +513,8 @@ export default function PODetailPage({ poId, role, onBack }) {
                 <th className="px-4 py-3 font-semibold text-right">Qty Expected</th>
                 <th className="px-4 py-3 font-semibold text-right">Qty Received</th>
                 <th className="px-4 py-3 font-semibold">Received Date</th>
+                <th className="px-4 py-3 font-semibold text-right">Unit Price</th>
+                <th className="px-4 py-3 font-semibold">Currency</th>
                 <th className="px-4 py-3 font-semibold" style={{ minWidth: 140 }}>Progress</th>
               </tr>
             </thead>
@@ -490,6 +535,10 @@ export default function PODetailPage({ poId, role, onBack }) {
                   <td className="px-4 py-3 text-right text-gray-700">{line.qty_expected}</td>
                   <td className="px-4 py-3 text-right text-gray-700">{line.qty_received}</td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{line.received_date || '—'}</td>
+                  <td className="px-4 py-3 text-right font-mono text-gray-700">
+                    {line.price_per_product != null ? line.price_per_product.toFixed(2) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 text-xs">{line.price_currency || '—'}</td>
                   <td className="px-4 py-3">
                     <ProgressBar received={line.qty_received} ordered={line.qty_ordered} />
                   </td>
@@ -526,6 +575,8 @@ export default function PODetailPage({ poId, role, onBack }) {
                   <th className="px-4 py-3 font-semibold">State</th>
                   <th className="px-4 py-3 font-semibold">Location</th>
                   <th className="px-4 py-3 font-semibold">Stock Type</th>
+                  <th className="px-4 py-3 font-semibold">Shipment Ref</th>
+                  <th className="px-4 py-3 font-semibold">Carrier</th>
                 </tr>
               </thead>
               <tbody>
@@ -542,7 +593,12 @@ export default function PODetailPage({ poId, role, onBack }) {
                       {s.product_name}
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                      <span
+                        className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                        style={s.current_state_code === 'QUALITY_HOLD'
+                          ? { backgroundColor: '#fee2e2', color: '#dc2626' }
+                          : { backgroundColor: '#f3e8ff', color: '#7c3aed' }}
+                      >
                         {s.current_state_code || '—'}
                       </span>
                     </td>
@@ -552,6 +608,8 @@ export default function PODetailPage({ poId, role, onBack }) {
                         : '—'}
                     </td>
                     <td className="px-4 py-2.5 text-gray-600 text-xs">{s.stock_type}</td>
+                    <td className="px-4 py-2.5 text-gray-600 text-xs font-mono">{s.shipment_reference || '—'}</td>
+                    <td className="px-4 py-2.5 text-gray-600 text-xs">{s.carrier || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -634,6 +692,83 @@ export default function PODetailPage({ poId, role, onBack }) {
           onClose={() => setShowImportModal(false)}
           onSuccess={onImportSuccess}
         />
+      )}
+
+      {/* Receive Dialog Modal */}
+      {showReceiveDialog && (
+        <Modal title={`Goods Receipt — ${po.po_number}`} onClose={() => setShowReceiveDialog(false)}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '10px 14px', background: '#f8fafc', borderRadius: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Set All:</span>
+              <button
+                onClick={() => setReceiveItems(items => items.map(i => ({ ...i, state_code: 'QUARANTINE' })))}
+                className="px-3 py-1 rounded-lg text-xs font-semibold"
+                style={{ background: '#7c3aed', color: '#fff', border: 'none', cursor: 'pointer' }}
+              >All &rarr; Quarantine</button>
+              <button
+                onClick={() => setReceiveItems(items => items.map(i => ({ ...i, state_code: 'QUALITY_HOLD' })))}
+                className="px-3 py-1 rounded-lg text-xs font-semibold"
+                style={{ background: '#dc2626', color: '#fff', border: 'none', cursor: 'pointer' }}
+              >All &rarr; Quality Hold</button>
+            </div>
+            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 text-xs uppercase border-b border-gray-100">
+                    <th className="px-3 py-2 font-semibold">Serial Number</th>
+                    <th className="px-3 py-2 font-semibold">Product</th>
+                    <th className="px-3 py-2 font-semibold">Target State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiveItems.map((item, idx) => (
+                    <tr key={item.serial_id} className="border-b border-gray-50">
+                      <td className="px-3 py-2 font-mono text-xs">{item.serial_number}</td>
+                      <td className="px-3 py-2 text-xs">{item.product_code}</td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={item.state_code}
+                          onChange={e => setReceiveItems(items => items.map((it, i) => i === idx ? { ...it, state_code: e.target.value } : it))}
+                          className="border border-gray-300 rounded-lg px-2 py-1 text-sm"
+                          style={{ color: item.state_code === 'QUALITY_HOLD' ? '#dc2626' : '#374151', fontWeight: 600 }}
+                        >
+                          <option value="QUARANTINE">Quarantine</option>
+                          <option value="QUALITY_HOLD" style={{ color: '#dc2626' }}>Quality Hold</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12 }}>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {receiveItems.length} serial(s) — {receiveItems.filter(i => i.state_code === 'QUALITY_HOLD').length} Quality Hold
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowReceiveDialog(false)}
+                className="px-4 py-2 rounded-lg text-sm border border-gray-300 hover:bg-gray-50"
+              >Cancel</button>
+              <button
+                onClick={async () => {
+                  setActionLoading(true); setActionError(null)
+                  try {
+                    await receiveDialog(poId, { items: receiveItems.map(i => ({ serial_id: i.serial_id, state_code: i.state_code })) })
+                    setShowReceiveDialog(false)
+                    loadPO()
+                  } catch (e) {
+                    setActionError(e.response?.data?.detail || 'Receiving failed')
+                  } finally { setActionLoading(false) }
+                }}
+                disabled={actionLoading || receiveItems.length === 0}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+                style={{ backgroundColor: actionLoading ? '#86efac' : '#16a34a' }}
+              >{actionLoading ? 'Processing...' : 'Confirm Receipt'}</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Raise Claim Modal */}

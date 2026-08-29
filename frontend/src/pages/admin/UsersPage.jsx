@@ -40,7 +40,7 @@ const RIGHTS_MATRIX = [
   { feature: 'Network Design (R3)',                      admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'—', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'—', rma_manager:'—', senior_management:'—' },
   { feature: 'Inventory — Terminal Serial Numbers',      admin:'R/W', supply_planner:'R/W', demand_planner:'R/W', warehouse_user:'R', supplier:'R', repair_centre:'R', inbound_specialist:'R', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
   { feature: 'Purchase Orders — Create, Issue & Cancel', admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'R', repair_centre:'R', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
-  { feature: 'Purchase Orders — Import Serials',         admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'R/W', repair_centre:'R/W', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
+  { feature: 'Purchase Orders — Import Serials',         admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'R/W', repair_centre:'R/W', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R', senior_management:'R' },
   { feature: 'Purchase Orders — Receive',                admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'R/W', repair_centre:'R/W', inbound_specialist:'R/W', outbound_specialist:'R', rma_manager:'R/W', senior_management:'R' },
   { feature: 'Outbound Orders — Create, Issue & Cancel', admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
   { feature: 'Outbound Orders — Allocate Serials',       admin:'R/W', supply_planner:'R/W', demand_planner:'R',   warehouse_user:'R/W', supplier:'—', repair_centre:'—', inbound_specialist:'—', outbound_specialist:'R/W', rma_manager:'—', senior_management:'—' },
@@ -188,6 +188,7 @@ export default function UsersPage({ role, currentUsername }) {
   const [users, setUsers] = useState([])
   const [locations, setLocations] = useState([])
   const [regions, setRegions] = useState([])
+  const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(null)
   const [showInactive, setShowInactive] = useState(false)
@@ -201,8 +202,8 @@ export default function UsersPage({ role, currentUsername }) {
   const [modalError, setModalError] = useState(null)
 
   // Form state
-  const [createForm, setCreateForm] = useState({ username: '', password: '', email: '', roles: ['warehouse_user'], location_ids: [], region_ids: [] })
-  const [editForm, setEditForm] = useState({ email: '', roles: [], location_ids: [], region_ids: [], active: 1 })
+  const [createForm, setCreateForm] = useState({ username: '', password: '', email: '', roles: ['warehouse_user'], location_ids: [], region_ids: [], supplier_id: '' })
+  const [editForm, setEditForm] = useState({ email: '', roles: [], location_ids: [], region_ids: [], active: 1, supplier_id: '' })
   const [resetForm, setResetForm] = useState({ new_password: '', confirm_password: '' })
 
   async function fetchUsers() {
@@ -222,6 +223,7 @@ export default function UsersPage({ role, currentUsername }) {
     Promise.all([
       api.get('/locations').then(r => setLocations(r.data)).catch(() => {}),
       api.get('/users/meta/regions').then(r => setRegions(r.data)).catch(() => {}),
+      api.get('/suppliers').then(r => setSuppliers(r.data)).catch(() => {}),
     ])
   }, [])
 
@@ -230,7 +232,7 @@ export default function UsersPage({ role, currentUsername }) {
   function clearModal() { setModalSuccess(null); setModalError(null) }
 
   function openCreate() {
-    setCreateForm({ username: '', password: '', email: '', roles: ['warehouse_user'], location_ids: [], region_ids: [] })
+    setCreateForm({ username: '', password: '', email: '', roles: ['warehouse_user'], location_ids: [], region_ids: [], supplier_id: '' })
     clearModal(); setShowCreateModal(true)
   }
 
@@ -242,6 +244,7 @@ export default function UsersPage({ role, currentUsername }) {
       location_ids: user.location_ids || [],
       region_ids: user.region_ids || [],
       active: user.active,
+      supplier_id: user.supplier_id || '',
     })
     clearModal(); setShowEditModal(true)
   }
@@ -255,6 +258,7 @@ export default function UsersPage({ role, currentUsername }) {
   async function handleCreate(e) {
     e.preventDefault()
     if (createForm.roles.length === 0) { setModalError('Please select at least one role.'); return }
+    if (/\s/.test(createForm.username)) { setModalError('Username must be a single word with no spaces.'); return }
     setSubmitting(true); setModalError(null); setModalSuccess(null)
     try {
       await createUser({
@@ -265,6 +269,7 @@ export default function UsersPage({ role, currentUsername }) {
         roles: createForm.roles,
         location_ids: createForm.location_ids,
         region_ids: createForm.region_ids,
+        supplier_id: createForm.supplier_id ? Number(createForm.supplier_id) : null,
       })
       setModalSuccess('User created successfully.')
       await fetchUsers()
@@ -286,6 +291,7 @@ export default function UsersPage({ role, currentUsername }) {
         location_ids: editForm.location_ids,
         region_ids: editForm.region_ids,
         active: editForm.active,
+        supplier_id: editForm.supplier_id ? Number(editForm.supplier_id) : null,
       })
       setModalSuccess('User updated successfully.')
       await fetchUsers()
@@ -365,6 +371,16 @@ export default function UsersPage({ role, currentUsername }) {
 
   const activeLocations = locations.filter(l => l.active !== 0)
 
+  // Filter locations by selected roles (enforced per role type)
+  function getFilteredLocations(roles) {
+    if (roles.includes('supplier')) return activeLocations.filter(l => l.location_type_name === 'Supplier')
+    if (roles.includes('repair_centre') && !roles.some(r => ['admin','supply_planner','warehouse_user','inbound_specialist','outbound_specialist'].includes(r)))
+      return activeLocations.filter(l => l.location_type_name === 'Repair Centre')
+    if (roles.includes('warehouse_user') && !roles.some(r => ['admin','supply_planner'].includes(r)))
+      return activeLocations.filter(l => ['Warehouse','FSL'].includes(l.location_type_name))
+    return activeLocations
+  }
+
   function renderUsersTab() {
     return (
       <div>
@@ -388,7 +404,7 @@ export default function UsersPage({ role, currentUsername }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #f3f4f6', background: '#f8fafc' }}>
-                    {['Username','Email','Roles','Locations','Regions','Status','Created','Actions'].map(h => (
+                    {['Username','Email','Roles','Supplier','Locations','Regions','Status','Created','Actions'].map(h => (
                       <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#6b7280', fontSize: 12 }}>{h}</th>
                     ))}
                   </tr>
@@ -407,6 +423,7 @@ export default function UsersPage({ role, currentUsername }) {
                             {(user.roles || [user.role]).map(r => <RoleBadge key={r} roleCode={r} />)}
                           </div>
                         </td>
+                        <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>{user.supplier_name || '—'}</td>
                         <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>
                           {(user.locations || []).length > 0
                             ? user.locations.map(l => l.code).join(', ')
@@ -487,11 +504,26 @@ export default function UsersPage({ role, currentUsername }) {
                 label="Roles (select one or more)"
                 options={ALL_ROLES.map(r => ({ value: r.value, label: r.label }))}
                 selected={createForm.roles}
-                onChange={v => setCreateForm(f => ({...f, roles: v}))}
+                onChange={v => setCreateForm(f => ({...f, roles: v, location_ids: []}))}
               />
             </div>
+            {createForm.roles.includes('supplier') && (
+              <div style={{ marginTop: 14 }}>
+                <FormRow label="Supplier Company" required>
+                  <select style={INPUT} value={createForm.supplier_id} onChange={e => setCreateForm(f => ({...f, supplier_id: e.target.value}))} required>
+                    <option value="">— Select supplier —</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </FormRow>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-              <MultiSelect label="Assigned Locations" options={activeLocations.map(l => ({ id: l.id, code: l.code, name: l.name }))} selected={createForm.location_ids} onChange={v => setCreateForm(f => ({...f, location_ids: v}))} />
+              <MultiSelect
+                label={`Assigned Locations${createForm.roles.includes('supplier') ? ' (Supplier locations)' : createForm.roles.includes('repair_centre') ? ' (Repair Centre locations)' : createForm.roles.includes('warehouse_user') ? ' (Warehouse/FSL locations)' : ''}`}
+                options={getFilteredLocations(createForm.roles).map(l => ({ id: l.id, code: l.code, name: l.name }))}
+                selected={createForm.location_ids}
+                onChange={v => setCreateForm(f => ({...f, location_ids: v}))}
+              />
               <MultiSelect label="Assigned Regions" options={regions.map(r => ({ id: r.id, code: r.code, name: r.name }))} selected={createForm.region_ids} onChange={v => setCreateForm(f => ({...f, region_ids: v}))} />
             </div>
             <InlineMsg success={modalSuccess} error={modalError} />
@@ -515,11 +547,26 @@ export default function UsersPage({ role, currentUsername }) {
                 label="Roles (select one or more)"
                 options={ALL_ROLES.map(r => ({ value: r.value, label: r.label }))}
                 selected={editForm.roles}
-                onChange={v => setEditForm(f => ({...f, roles: v}))}
+                onChange={v => setEditForm(f => ({...f, roles: v, location_ids: []}))}
               />
             </div>
+            {editForm.roles.includes('supplier') && (
+              <div style={{ marginTop: 14 }}>
+                <FormRow label="Supplier Company">
+                  <select style={INPUT} value={editForm.supplier_id} onChange={e => setEditForm(f => ({...f, supplier_id: e.target.value}))}>
+                    <option value="">— Select supplier —</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </FormRow>
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
-              <MultiSelect label="Assigned Locations" options={activeLocations.map(l => ({ id: l.id, code: l.code, name: l.name }))} selected={editForm.location_ids} onChange={v => setEditForm(f => ({...f, location_ids: v}))} />
+              <MultiSelect
+                label={`Assigned Locations${editForm.roles.includes('supplier') ? ' (Supplier locations)' : editForm.roles.includes('repair_centre') ? ' (Repair Centre locations)' : editForm.roles.includes('warehouse_user') ? ' (Warehouse/FSL locations)' : ''}`}
+                options={getFilteredLocations(editForm.roles).map(l => ({ id: l.id, code: l.code, name: l.name }))}
+                selected={editForm.location_ids}
+                onChange={v => setEditForm(f => ({...f, location_ids: v}))}
+              />
               <MultiSelect label="Assigned Regions" options={regions.map(r => ({ id: r.id, code: r.code, name: r.name }))} selected={editForm.region_ids} onChange={v => setEditForm(f => ({...f, region_ids: v}))} />
             </div>
             <div style={{ marginTop: 14 }}>

@@ -19,8 +19,13 @@ export default function OutboundDetailStandalonePage() {
       .catch(() => { setError(`Order "${orderNumber}" not found.`); setLoading(false) })
   }, [orderNumber])
 
+  function goBack() {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/')
+  }
+
   return (
-    <AppShell title={`Order — ${orderNumber}`} onBack={() => navigate(-1)}>
+    <AppShell title={`Order — ${orderNumber}`} onBack={goBack}>
       <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
         {loading && <p style={{ color: 'var(--fg-muted)' }}>Loading…</p>}
         {error && <p style={{ color: 'var(--alert)' }}>{error}</p>}

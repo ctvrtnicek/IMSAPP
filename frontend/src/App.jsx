@@ -8,6 +8,7 @@ import OutboundDetailStandalonePage from './pages/orders/OutboundDetailStandalon
 import ReturnDetailStandalonePage from './pages/returns/ReturnDetailStandalonePage.jsx'
 import RepairDetailStandalonePage from './pages/returns/RepairDetailStandalonePage.jsx'
 import WorkOrderDetailPage from './pages/warehouse/WorkOrderDetailPage.jsx'
+import SupplierPortalPage from './pages/supplier/SupplierPortalPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 
 function getInitialAuth() {
@@ -95,6 +96,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <WorkOrderDetailPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/supplier-portal"
+        element={
+          <ProtectedRoute>
+            <SupplierPortalPage />
           </ProtectedRoute>
         }
       />

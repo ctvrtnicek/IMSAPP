@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
 from models import (
-    Customer, DistributionOrder, OutboundOrder, Product,
+    Customer, DistributionOrder, Firmware, OutboundOrder, Product,
     PurchaseOrder, RepairReworkOrder, ReturnOrder, SerialNumber, Supplier, User,
 )
 
@@ -114,6 +114,14 @@ def global_search(
     for c in customers:
         r = _hit("Customer", c.customer_ref, c.name, f"/dashboard")
         add(r, _exact(c.customer_ref, term) or _exact(c.name, term))
+
+    # ── Firmware ────────────────────────────────────────────────────────────
+    firmwares = db.query(Firmware).filter(
+        Firmware.firmware_name.ilike(like) | Firmware.version.ilike(like)
+    ).limit(20).all()
+    for fw in firmwares:
+        r = _hit("Firmware", fw.firmware_name, f"Version: {fw.version or '—'} | Release: {fw.release_date or '—'}", f"/dashboard")
+        add(r, _exact(fw.firmware_name, term) or _exact(fw.version, term))
 
     # ── Suppliers ───────────────────────────────────────────────────────────
     suppliers = db.query(Supplier).filter(

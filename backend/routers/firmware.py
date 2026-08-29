@@ -39,6 +39,9 @@ class FirmwareOut(BaseModel):
     key_used: Optional[str] = None
     file_path: Optional[str] = None
     has_file: bool = False
+    product_id: Optional[int] = None
+    product_code: Optional[str] = None
+    active: int = 1
     created_at: Optional[str] = None
     model_config = {"from_attributes": True}
 
@@ -50,6 +53,8 @@ class FirmwareCreate(BaseModel):
     release_date: Optional[str] = None
     release_hour: Optional[str] = None
     key_used: Optional[str] = None
+    product_id: Optional[int] = None
+    active: int = 1
 
 
 class FirmwareUpdate(BaseModel):
@@ -59,6 +64,8 @@ class FirmwareUpdate(BaseModel):
     release_date: Optional[str] = None
     release_hour: Optional[str] = None
     key_used: Optional[str] = None
+    product_id: Optional[int] = None
+    active: Optional[int] = None
 
 
 def _fw_out(fw: Firmware) -> FirmwareOut:
@@ -68,6 +75,9 @@ def _fw_out(fw: Firmware) -> FirmwareOut:
         release_hour=fw.release_hour, key_used=fw.key_used,
         file_path=fw.file_path,
         has_file=bool(fw.file_path and os.path.exists(fw.file_path)),
+        product_id=fw.product_id,
+        product_code=fw.product.code if fw.product else None,
+        active=fw.active if fw.active is not None else 1,
         created_at=str(fw.created_at) if fw.created_at else None,
     )
 

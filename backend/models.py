@@ -14,6 +14,7 @@ class User(Base):
     role = Column(String, nullable=False)
     default_location_id = Column(Integer, nullable=True)
     active = Column(Integer, nullable=False, default=1)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
 
 
@@ -25,6 +26,8 @@ class LocationType(Base):
     __tablename__ = "location_types"
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(Text, nullable=False, unique=True)
+    gr_applicable = Column(Integer, nullable=False, default=1)
+    accruals_applicable = Column(Text, nullable=False, default="NA")  # NA|WEEKLY|MONTHLY|QUARTERLY
     active = Column(Integer, nullable=False, default=1)
 
 
@@ -38,6 +41,7 @@ class Location(Base):
     city = Column(Text)
     reporting_currency = Column(Text, nullable=False, default="EUR")
     active = Column(Integer, nullable=False, default=1)
+    country_code = Column(Text, ForeignKey("countries.country_code"), nullable=True)
     location_type = relationship("LocationType")
 
 
@@ -75,6 +79,7 @@ class Supplier(Base):
     contact_email = Column(Text)
     contact_phone = Column(Text)
     active = Column(Integer, nullable=False, default=1)
+    country_code = Column(Text, ForeignKey("countries.country_code"), nullable=True)
 
 
 class Customer(Base):
@@ -91,6 +96,8 @@ class Customer(Base):
     contact_email = Column(Text)
     contact_phone = Column(Text)
     active = Column(Integer, nullable=False, default=1)
+    segment_id = Column(Integer, ForeignKey("customer_segments.id"), nullable=True)
+    segment = relationship("CustomerSegment")
 
 
 class Product(Base):
@@ -172,11 +179,16 @@ class SerialNumber(Base):
     key_id = Column(Text)
     firmware_id = Column(Integer, ForeignKey("firmware.id"), nullable=True)
     firmware_applied_at = Column(TIMESTAMP, nullable=True)
+    pegged_to_order_id = Column(Integer, ForeignKey("outbound_orders.id"), nullable=True)
+    import_batch_id = Column(Integer, ForeignKey("serial_import_batches.id"), nullable=True)
+    shipment_reference = Column(Text, nullable=True)
+    carrier = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     current_state = relationship("TerminalState")
     current_location = relationship("Location")
     supplier = relationship("Supplier")
     product = relationship("Product")
+    firmware = relationship("Firmware", foreign_keys=[firmware_id])
 
 
 class NonSerialisedInventory(Base):
@@ -271,6 +283,8 @@ class PurchaseOrderLine(Base):
     qty_expected = Column(Integer, nullable=False, default=0)
     qty_received = Column(Integer, nullable=False, default=0)
     received_date = Column(Text)
+    price_per_product = Column(Float, nullable=True)
+    price_currency = Column(Text, nullable=True)
     po = relationship("PurchaseOrder", back_populates="lines")
     product = relationship("Product")
 
@@ -332,6 +346,7 @@ class OutboundOrder(Base):
     shipment_vat_number = Column(Text)
     created_by_user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    allocation_source_order_id = Column(Integer, ForeignKey("outbound_orders.id"), nullable=True)
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     customer = relationship("Customer")
     destination_location = relationship("Location", foreign_keys=[destination_location_id])
@@ -350,8 +365,16 @@ class OutboundOrderLine(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
     group_id = Column(Text)
+    fulfilling_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    edd = Column(Text, nullable=True)
+    atp_status = Column(Text, nullable=True)
+    component_transfer_orders = Column(Text, nullable=True)
+    bom_assembly_status = Column(Text, nullable=True)
+    atp_reasoning = Column(Text, nullable=True)
+    atp_split_details = Column(Text, nullable=True)
     order = relationship("OutboundOrder", back_populates="lines")
     product = relationship("Product")
+    fulfilling_location = relationship("Location")
 
 
 class OutboundOrderSerial(Base):
@@ -489,6 +512,7 @@ class RepairReworkOrder(Base):
     actual_cost = Column(Float)
     actual_cost_currency = Column(Text)
     repair_notes = Column(Text)
+    rma_reference = Column(Text, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     location = relationship("Location", foreign_keys=[location_id])
@@ -570,6 +594,7 @@ class ReturnOrder(Base):
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     customer = relationship("Customer")
     original_order = relationship("OutboundOrder", foreign_keys=[original_order_id])
+    rma_reference = Column(Text, nullable=True)
     serials = relationship("ReturnOrderSerial", back_populates="return_order", cascade="all, delete-orphan")
 
 
@@ -873,6 +898,7 @@ class Country(Base):
     region_id    = Column(Integer, ForeignKey("regions.id"), nullable=False)
     serviced     = Column(Integer, nullable=False, default=0)
     activated_at = Column(TIMESTAMP)
+    currency     = Column(Text, nullable=True)
     region = relationship("Region")
 
 
@@ -890,6 +916,7 @@ class NetworkVersion(Base):
     committed_at         = Column(TIMESTAMP)
     committed_by_user_id = Column(Integer, ForeignKey("users.id"))
     notes                = Column(Text)
+    is_current           = Column(Integer, nullable=False, default=0)
     created_at           = Column(TIMESTAMP, server_default=func.current_timestamp())
     committed_by = relationship("User")
     flows        = relationship("SupplyFlow", back_populates="version", cascade="all, delete-orphan")
@@ -899,13 +926,19 @@ class SupplyFlow(Base):
     __tablename__ = "supply_flows"
     id                 = Column(Integer, primary_key=True, autoincrement=True)
     network_version_id = Column(Integer, ForeignKey("network_versions.id"), nullable=False)
-    from_location_id   = Column(Integer, ForeignKey("locations.id"), nullable=False)
-    to_location_id     = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    from_location_id   = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    from_supplier_id   = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
+    to_location_id     = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    to_supplier_id     = Column(Integer, ForeignKey("suppliers.id"), nullable=True)
     flow_type          = Column(Text, nullable=False)
+    lead_time          = Column(Float, nullable=True)
+    lead_time_unit     = Column(Text, nullable=False, default="days")  # days|hours
     active             = Column(Integer, nullable=False, default=1)
     version       = relationship("NetworkVersion", back_populates="flows")
     from_location = relationship("Location", foreign_keys=[from_location_id])
+    from_supplier = relationship("Supplier", foreign_keys=[from_supplier_id])
     to_location   = relationship("Location", foreign_keys=[to_location_id])
+    to_supplier   = relationship("Supplier", foreign_keys=[to_supplier_id])
     constraints   = relationship("FlowConstraint", back_populates="flow", cascade="all, delete-orphan")
 
 
@@ -935,7 +968,10 @@ class Firmware(Base):
     release_hour   = Column(Text)
     key_used       = Column(Text)
     file_path      = Column(Text)
+    product_id     = Column(Integer, ForeignKey("products.id"), nullable=True)
+    active         = Column(Integer, nullable=False, default=1)
     created_at     = Column(TIMESTAMP, server_default=func.current_timestamp())
+    product        = relationship("Product", foreign_keys=[product_id])
 
 
 # ---------------------------------------------------------------------------
@@ -1066,6 +1102,17 @@ class ProductBomComponent(Base):
     component = relationship("Product", foreign_keys=[component_product_id])
 
 
+class GoodsReceiptMessage(Base):
+    __tablename__ = "goods_receipt_messages"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    po_id = Column(Integer, ForeignKey("purchase_orders.id"), nullable=True)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    message_type = Column(Text, nullable=False)  # GOODS_RECEIPT or REVERSE_GOODS_RECEIPT
+    serial_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    created_by_user_id = Column(Integer, ForeignKey("users.id"))
+
+
 class ProductCountry(Base):
     __tablename__ = "product_countries"
     product_code = Column(Text, primary_key=True)
@@ -1074,80 +1121,80 @@ class ProductCountry(Base):
 
 
 # ---------------------------------------------------------------------------
-# R3 — Inventory Shortage Agent
+# Agent infrastructure (Phase 3F)
 # ---------------------------------------------------------------------------
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"
-    id                = Column(Integer, primary_key=True, autoincrement=True)
-    run_id            = Column(Text, nullable=False)
-    agent_name        = Column(Text, nullable=False)
-    triggered_by      = Column(Text)
-    status            = Column(Text, nullable=False)
-    shortages_found   = Column(Integer)
-    actions_taken     = Column(Integer)
-    hitl_items        = Column(Integer)
-    intents_recorded  = Column(Integer)
-    intents_executed  = Column(Integer)
-    summary_text      = Column(Text)
-    started_at        = Column(TIMESTAMP, server_default=func.current_timestamp())
-    completed_at      = Column(TIMESTAMP)
-
-
-class AgentLog(Base):
-    __tablename__ = "agent_logs"
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    run_id      = Column(Text, nullable=False)
-    agent_name  = Column(Text, nullable=False)
-    step_type   = Column(Text, nullable=False)
-    message     = Column(Text)
-    order_ref   = Column(Text)
-    created_at  = Column(TIMESTAMP, server_default=func.current_timestamp())
-
-
-class AgentRecommendation(Base):
-    __tablename__ = "agent_recommendations"
-    id                   = Column(Integer, primary_key=True, autoincrement=True)
-    run_id               = Column(Text, nullable=False)
-    agent_name           = Column(Text, nullable=False)
-    rec_type             = Column(Text, nullable=False)
-    product_id           = Column(Integer, ForeignKey("products.id"))
-    from_location_id     = Column(Integer, ForeignKey("locations.id"))
-    to_location_id       = Column(Integer, ForeignKey("locations.id"))
-    qty                  = Column(Integer)
-    shortage_qty         = Column(Integer)
-    estimated_value      = Column(Float)
-    status               = Column(Text, nullable=False, default="Pending")
-    order_ref            = Column(Text)
-    notes                = Column(Text)
-    created_at           = Column(TIMESTAMP, server_default=func.current_timestamp())
-    actioned_at          = Column(TIMESTAMP)
-    actioned_by_user_id  = Column(Integer, ForeignKey("users.id"))
-    product       = relationship("Product", foreign_keys=[product_id])
-    from_location = relationship("Location", foreign_keys=[from_location_id])
-    to_location   = relationship("Location", foreign_keys=[to_location_id])
-    actioned_by   = relationship("User")
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    run_id           = Column(Text, nullable=False, unique=True)
+    agent_name       = Column(Text, nullable=False)
+    triggered_by     = Column(Text)
+    status           = Column(Text, nullable=False, default="running")
+    shortages_found  = Column(Integer, default=0)
+    actions_taken    = Column(Integer, default=0)
+    hitl_items       = Column(Integer, default=0)
+    intents_recorded = Column(Integer, default=0)
+    intents_executed = Column(Integer, default=0)
+    summary_text     = Column(Text)
+    started_at       = Column(TIMESTAMP, server_default=func.current_timestamp())
+    completed_at     = Column(TIMESTAMP)
 
 
 class AgentAllocationIntent(Base):
     __tablename__ = "agent_allocation_intents"
-    id                     = Column(Integer, primary_key=True, autoincrement=True)
-    run_id                 = Column(Text, nullable=False)
-    agent_name             = Column(Text, nullable=False)
-    product_id             = Column(Integer, ForeignKey("products.id"))
-    from_location_id       = Column(Integer, ForeignKey("locations.id"))
-    to_location_id         = Column(Integer, ForeignKey("locations.id"))
-    reserved_qty           = Column(Integer, nullable=False)
-    remaining_qty          = Column(Integer, nullable=False)
-    reasoning              = Column(Text)
-    status                 = Column(Text, nullable=False)
-    horizon_days           = Column(Integer)
-    created_at             = Column(TIMESTAMP, server_default=func.current_timestamp())
-    executed_at            = Column(TIMESTAMP)
-    cancelled_at           = Column(TIMESTAMP)
-    cancelled_by_user_id   = Column(Integer, ForeignKey("users.id"))
-    execution_do_refs      = Column(Text)
-    product       = relationship("Product", foreign_keys=[product_id])
-    from_location = relationship("Location", foreign_keys=[from_location_id])
-    to_location   = relationship("Location", foreign_keys=[to_location_id])
-    cancelled_by  = relationship("User")
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    run_id               = Column(Text, nullable=False)
+    agent_name           = Column(Text, nullable=False)
+    product_id           = Column(Integer, ForeignKey("products.id"))
+    from_location_id     = Column(Integer, ForeignKey("locations.id"))
+    to_location_id       = Column(Integer, ForeignKey("locations.id"))
+    reserved_qty         = Column(Integer, nullable=False, default=0)
+    remaining_qty        = Column(Integer, nullable=False, default=0)
+    reasoning            = Column(Text)
+    status               = Column(Text, nullable=False, default="Pending")
+    horizon_days         = Column(Integer, default=14)
+    created_at           = Column(TIMESTAMP, server_default=func.current_timestamp())
+    executed_at          = Column(TIMESTAMP)
+    cancelled_at         = Column(TIMESTAMP)
+    cancelled_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    execution_do_refs    = Column(Text)
+    product              = relationship("Product")
+    from_location        = relationship("Location", foreign_keys=[from_location_id])
+    to_location          = relationship("Location", foreign_keys=[to_location_id])
+    cancelled_by         = relationship("User", foreign_keys=[cancelled_by_user_id])
+
+
+class AgentLog(Base):
+    __tablename__ = "agent_logs"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    run_id     = Column(Text, nullable=False)
+    agent_name = Column(Text, nullable=False)
+    step_type  = Column(Text, nullable=False)   # THINK / ACT / OBSERVE / SUMMARY / INTENT_CHECK / INTENT_EXECUTE / LLM_REASONING
+    message    = Column(Text)
+    order_ref  = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+
+class AgentRecommendation(Base):
+    __tablename__ = "agent_recommendations"
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    run_id              = Column(Text, nullable=False)
+    agent_name          = Column(Text, nullable=False)
+    rec_type            = Column(Text, nullable=False)   # DO / PurchaseRequisition / RepairReservation
+    product_id          = Column(Integer, ForeignKey("products.id"))
+    from_location_id    = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    to_location_id      = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    qty                 = Column(Integer)
+    shortage_qty        = Column(Integer)
+    estimated_value     = Column(Float)
+    status              = Column(Text, nullable=False, default="Pending")
+    order_ref           = Column(Text)
+    notes               = Column(Text)
+    created_at          = Column(TIMESTAMP, server_default=func.current_timestamp())
+    actioned_at         = Column(TIMESTAMP)
+    actioned_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    product             = relationship("Product")
+    from_location       = relationship("Location", foreign_keys=[from_location_id])
+    to_location         = relationship("Location", foreign_keys=[to_location_id])
+    actioned_by         = relationship("User", foreign_keys=[actioned_by_user_id])

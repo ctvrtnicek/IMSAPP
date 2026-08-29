@@ -7,14 +7,16 @@ const inputStyle = {
 }
 
 function downloadCSV(data, filename) {
-  const headers = ['Location Code', 'Location Name', 'Serialised', 'Non-Serialised', 'Total', 'Total Cost (€)']
+  const headers = ['Location Code', 'Location Name', 'Serialised', 'Non-Serialised', 'Total', 'Total Cost (€)', 'Next Accruals', 'Expected Accruals']
   const rows = data.map(r => [
     r.location_code,
     r.location_name,
     r.serialised_count,
     r.non_serialised_count,
     r.serialised_count + r.non_serialised_count,
-    (r.total_cost || 0).toFixed(2)
+    (r.total_cost || 0).toFixed(2),
+    r.next_accruals_date || '',
+    r.expected_accruals ? `${r.reporting_currency || '€'} ${r.expected_accruals.toFixed(2)}` : '',
   ])
   const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
   const blob = new Blob([csv], { type: 'text/csv' })
@@ -101,7 +103,7 @@ export default function ByLocationPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                {['Location Code', 'Location Name', 'Serialised', 'Non-Serialised', 'Total', 'Total Cost (€)'].map((h) => (
+                {['Location Code', 'Location Name', 'Serialised', 'Non-Serialised', 'Total', 'Total Cost (€)', 'Next Accruals', 'Expected Accruals'].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '10px 14px', color: '#6b7280', fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                 ))}
               </tr>
@@ -126,11 +128,15 @@ export default function ByLocationPage() {
                     <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem', color: '#374151' }}>
                       {r.total_cost ? `€ ${r.total_cost.toFixed(2)}` : '—'}
                     </td>
+                    <td style={{ padding: '10px 14px', color: '#374151', fontSize: '0.82rem' }}>{r.next_accruals_date || '—'}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem', color: '#374151' }}>
+                      {r.expected_accruals ? `${r.reporting_currency || '€'} ${r.expected_accruals.toFixed(2)}` : '—'}
+                    </td>
                   </tr>
 
                   {expandedId === r.location_id && (
                     <tr key={`drill-${r.location_id}`}>
-                      <td colSpan={6} style={{ padding: 0, background: '#f8fafc' }}>
+                      <td colSpan={8} style={{ padding: 0, background: '#f8fafc' }}>
                         <div style={{ padding: '1rem', borderBottom: '2px solid #e5e7eb' }}>
                           <p style={{ fontWeight: 700, fontSize: '0.8rem', color: '#6b7280', marginBottom: '0.5rem' }}>
                             SERIALS AT {r.location_code}

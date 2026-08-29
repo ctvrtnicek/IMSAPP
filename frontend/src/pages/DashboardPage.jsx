@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAlertSummary } from '../api/alerts.js'
+import { getAgentStatus } from '../api/agents.js'
 import LocationsPage from './master-data/LocationsPage.jsx'
 import SuppliersPage from './master-data/SuppliersPage.jsx'
 import ProductsPage from './master-data/ProductsPage.jsx'
@@ -31,13 +32,13 @@ import DashboardHome from './dashboard/DashboardHome.jsx'
 import AlertsPage from './alerts/AlertsPage.jsx'
 import AlertRulesPage from './admin/AlertRulesPage.jsx'
 import SystemConfigPage from './admin/SystemConfigPage.jsx'
-import NetworkDesignPage from './admin/NetworkDesignPage.jsx'
-import FirmwarePage from './admin/FirmwarePage.jsx'
-import SearchResultsPage from './SearchResultsPage.jsx'
-import ATPConfigPage from './admin/ATPConfigPage.jsx'
 import AgenticPage from './admin/AgenticPage.jsx'
+import NetworkDesignPage, { RegionsCountriesPage } from './admin/NetworkDesignPage.jsx'
+import FirmwarePage from './admin/FirmwarePage.jsx'
+import ATPConfigPage from './admin/ATPConfigPage.jsx'
+import AllocationPage from './supply/AllocationPage.jsx'
+import SearchResultsPage from './SearchResultsPage.jsx'
 import TraceabilityPage from './inventory/TraceabilityPage.jsx'
-import SupplierPortalPage from './supplier/SupplierPortalPage.jsx'
 
 // ---------------------------------------------------------------------------
 // Role-based visibility helpers
@@ -100,24 +101,28 @@ const NAV_ITEMS = [
   { id: 'admin',           label: 'Admin',              icon: '⚙' },
 ]
 
-const ADMIN_TABS = [
+const ADMIN_MASTER_DATA_TABS = [
   { id: 'locations',      label: 'Locations' },
   { id: 'suppliers',      label: 'Suppliers' },
   { id: 'products',       label: 'Products' },
   { id: 'customers',      label: 'Customers' },
   { id: 'users',          label: 'Users & Roles' },
   { id: 'states',         label: 'Terminal States' },
-  { id: 'calendars',      label: 'Calendars' },
+  { id: 'calendars',        label: 'Calendars' },
+  { id: 'regions-countries', label: 'Regions & Countries' },
+  { id: 'system-config',    label: 'System Config' },
+  { id: 'agentic',          label: 'Agentic' },
+]
+
+const ADMIN_SUPPLY_CHAIN_TABS = [
   { id: 'cost-master',    label: 'Cost Master' },
   { id: 'exchange-rates', label: 'FX Rates' },
   { id: 'claim-types',    label: 'Claim Types' },
-  { id: 'alert-rules',      label: 'Alert Rules' },
-  { id: 'system-config',    label: 'System Config' },
-  { id: 'network-design',   label: 'Network Design' },
-  { id: 'firmware',         label: 'Firmware' },
-  { id: 'upload',           label: 'Upload' },
-  { id: 'atp-config',       label: 'ATP Config' },
-  { id: 'agents',           label: 'Agents' },
+  { id: 'alert-rules',    label: 'Alert Rules' },
+  { id: 'atp-config',     label: 'ATP Configuration' },
+  { id: 'network-design', label: 'Network Design' },
+  { id: 'firmware',       label: 'Firmware' },
+  { id: 'upload',         label: 'Upload' },
 ]
 
 const WAREHOUSE_TABS = [
@@ -205,13 +210,13 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
         style={{
           display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-end',
           padding: '6px 10px', border: 'none', background: 'transparent',
-          cursor: 'pointer', color: 'rgba(255,255,255,0.5)',
+          cursor: 'pointer', color: 'rgba(0,0,0,0.4)',
           fontSize: 16, lineHeight: 1, flexShrink: 0,
           transition: 'color 0.15s',
           marginBottom: 4,
         }}
-        onMouseOver={e => e.currentTarget.style.color = 'rgba(255,255,255,0.9)'}
-        onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+        onMouseOver={e => e.currentTarget.style.color = 'rgba(0,0,0,0.8)'}
+        onMouseOut={e => e.currentTarget.style.color = 'rgba(0,0,0,0.4)'}
       >
         {collapsed ? '›' : '‹'}
       </button>
@@ -219,7 +224,7 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
       {/* Search box */}
       {!collapsed && (
         <div style={{ padding: '0 10px', marginBottom: 8, flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.07)', borderRadius: 6, overflow: 'hidden' }}>
             <input
               ref={inputRef}
               type="text"
@@ -229,15 +234,14 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
               onKeyDown={handleKeyDown}
               style={{
                 flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                color: '#fff', fontSize: 12, padding: '6px 8px',
-                '::placeholder': { color: 'rgba(255,255,255,0.4)' },
+                color: '#1a1a1a', fontSize: 12, padding: '6px 8px',
               }}
             />
             <button
               onClick={onSearchSubmit}
               style={{
                 background: 'transparent', border: 'none', cursor: 'pointer',
-                color: 'rgba(255,255,255,0.5)', padding: '6px 8px', fontSize: 13, lineHeight: 1,
+                color: 'rgba(0,0,0,0.4)', padding: '6px 8px', fontSize: 13, lineHeight: 1,
               }}
             >
               ⌕
@@ -253,7 +257,7 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             margin: '0 6px 8px', padding: '8px', borderRadius: 6,
             border: 'none', background: 'transparent', cursor: 'pointer',
-            color: 'rgba(255,255,255,0.5)', fontSize: 16,
+            color: 'rgba(0,0,0,0.4)', fontSize: 16,
           }}
         >
           ⌕
@@ -280,9 +284,9 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
                 border: 'none',
                 cursor: 'pointer',
                 transition: 'background 0.15s, color 0.15s',
-                background: isActive ? 'rgba(255,255,255,0.15)' : 'transparent',
-                borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
-                color: isActive ? '#fff' : 'rgba(255,255,255,0.7)',
+                background: isActive ? '#e8f4ff' : 'transparent',
+                borderLeft: isActive ? '3px solid var(--cadet-dark)' : '3px solid transparent',
+                color: isActive ? 'var(--cadet-dark)' : 'rgba(0,0,0,0.65)',
                 fontWeight: isActive ? 600 : 400,
                 fontSize: 13,
                 whiteSpace: 'nowrap',
@@ -290,7 +294,7 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
                 position: 'relative',
                 flexShrink: 0,
               }}
-              onMouseOver={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+              onMouseOver={e => { if (!isActive) e.currentTarget.style.background = 'rgba(0,0,0,0.06)' }}
               onMouseOut={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
             >
               <span style={{ fontSize: 17, lineHeight: 1, flexShrink: 0 }}>{item.icon}</span>
@@ -337,6 +341,7 @@ export default function DashboardPage({ auth, setAuth }) {
   const [activeRepairDetail, setActiveRepairDetail] = useState(null)
   const [activeWarehouseTab, setActiveWarehouseTab] = useState(() => sessionStorage.getItem('dash_warehouse_tab') || 'state-update')
   const [alertSummary, setAlertSummary]   = useState({ total: 0, critical: 0, urgent: 0, normal: 0 })
+  const [agentStatus, setAgentStatus]     = useState({ running: false, running_count: 0 })
   const [collapsed, setCollapsed]         = useState(() => localStorage.getItem('sidebar_collapsed') === 'true')
   const [searchQuery, setSearchQuery]     = useState('')
   const [searchTerm, setSearchTerm]       = useState('')
@@ -353,6 +358,15 @@ export default function DashboardPage({ auth, setAuth }) {
     }
     fetchSummary()
     const timer = setInterval(fetchSummary, 60000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    function fetchAgentStatus() {
+      getAgentStatus().then((r) => setAgentStatus(r.data)).catch(() => {})
+    }
+    fetchAgentStatus()
+    const timer = setInterval(fetchAgentStatus, 15000)
     return () => clearInterval(timer)
   }, [])
 
@@ -414,11 +428,21 @@ export default function DashboardPage({ auth, setAuth }) {
     }
 
     if (activeNav === 'admin') {
+      if (!roles.includes('admin')) {
+        return <DashboardHome username={username} roleLabel={roleLabel} onNavigate={handleNavigate} />
+      }
       return (
         <div className="flex flex-col h-full">
           <div className="mb-5">
             <h1 style={{ fontSize: 'var(--fs-h2)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', marginBottom: 16 }}>Admin</h1>
-            <SubTabBar tabs={ADMIN_TABS} active={activeAdminTab} onChange={handleAdminTabChange} />
+            <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)', fontWeight: 'var(--fw-semibold)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Master Data &amp; System Config</p>
+            <SubTabBar tabs={ADMIN_MASTER_DATA_TABS} active={activeAdminTab} onChange={handleAdminTabChange} />
+            <details style={{ marginTop: 8 }} open={ADMIN_SUPPLY_CHAIN_TABS.some(t => t.id === activeAdminTab)}>
+              <summary style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-3)', fontWeight: 'var(--fw-semibold)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em', cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 10 }}>▸</span> Master Data — Supply Chain
+              </summary>
+              <SubTabBar tabs={ADMIN_SUPPLY_CHAIN_TABS} active={activeAdminTab} onChange={handleAdminTabChange} />
+            </details>
           </div>
           <div className="flex-1">
             {activeAdminTab === 'locations'     && <LocationsPage role={role} />}
@@ -432,12 +456,13 @@ export default function DashboardPage({ auth, setAuth }) {
             {activeAdminTab === 'exchange-rates'&& <ExchangeRatesPage role={role} />}
             {activeAdminTab === 'claim-types'   && <ClaimTypesPage role={role} />}
             {activeAdminTab === 'alert-rules'      && <AlertRulesPage />}
+            {activeAdminTab === 'regions-countries' && <RegionsCountriesPage role={role} />}
             {activeAdminTab === 'system-config'    && <SystemConfigPage />}
+            {activeAdminTab === 'agentic'           && <AgenticPage />}
+            {activeAdminTab === 'atp-config'       && <ATPConfigPage role={role} />}
             {activeAdminTab === 'network-design'   && <NetworkDesignPage role={role} />}
             {activeAdminTab === 'firmware'         && <FirmwarePage role={role} />}
             {activeAdminTab === 'upload'           && <ExcelUploadPage />}
-            {activeAdminTab === 'atp-config'       && <ATPConfigPage role={role} />}
-            {activeAdminTab === 'agents'           && <AgenticPage />}
           </div>
         </div>
       )
@@ -581,42 +606,53 @@ export default function DashboardPage({ auth, setAuth }) {
     )
   }
 
-  // Suppliers get a dedicated, self-contained portal (their own POs, serial
-  // import, alerts) instead of the internal-staff sidebar/nav — the rest of
-  // the app's modules (master data, warehouse, admin, ...) aren't relevant
-  // to a supplier's role.
-  const isSupplierOnly = role === 'supplier'
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-2)' }}>
       {/* Top bar */}
       <header className="e2o-topbar" style={{ flexShrink: 0, justifyContent: 'space-between' }}>
         <span style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-body-lg)', letterSpacing: '0.02em' }}>
-          Inventory Management System
+          Terminal Stock App
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
-          {/* Alert bell */}
-          {!isSupplierOnly && (
+          {/* AI agent status */}
+          {roles.some(r => ['admin', 'supply_planner'].includes(r)) && (
             <button
-              onClick={() => handleNavChange('alerts')}
-              title={alertSummary.total > 0 ? `${alertSummary.total} active alert${alertSummary.total !== 1 ? 's' : ''}` : 'No active alerts'}
+              onClick={() => { handleNavChange('admin'); handleAdminTabChange('agentic') }}
+              title={agentStatus.running
+                ? `${agentStatus.running_count} AI agent${agentStatus.running_count !== 1 ? 's' : ''} running`
+                : 'No AI agents running'}
               style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#fff', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center' }}
             >
-              🔔
-              {alertSummary.total > 0 && (
-                <span style={{
-                  position: 'absolute', top: -4, right: -4,
-                  background: alertSummary.critical > 0 ? '#dc2626' : '#f59e0b',
-                  color: '#fff', borderRadius: '9999px',
-                  fontSize: 9, fontWeight: 700,
-                  minWidth: 16, height: 16, lineHeight: '16px',
-                  textAlign: 'center', padding: '0 3px',
-                }}>
-                  {alertSummary.total > 99 ? '99+' : alertSummary.total}
-                </span>
-              )}
+              🤖
+              <span style={{
+                position: 'absolute', top: 2, right: 2,
+                width: 8, height: 8, borderRadius: '9999px',
+                background: agentStatus.running ? '#22c55e' : 'rgba(255,255,255,0.35)',
+                boxShadow: agentStatus.running ? '0 0 0 2px rgba(34,197,94,0.35)' : 'none',
+                animation: agentStatus.running ? 'agent-pulse 1.6s ease-in-out infinite' : 'none',
+              }} />
             </button>
           )}
+          {/* Alert bell */}
+          <button
+            onClick={() => handleNavChange('alerts')}
+            title={alertSummary.total > 0 ? `${alertSummary.total} active alert${alertSummary.total !== 1 ? 's' : ''}` : 'No active alerts'}
+            style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px', color: '#fff', fontSize: 18, lineHeight: 1, display: 'flex', alignItems: 'center' }}
+          >
+            🔔
+            {alertSummary.total > 0 && (
+              <span style={{
+                position: 'absolute', top: -4, right: -4,
+                background: alertSummary.critical > 0 ? '#dc2626' : '#f59e0b',
+                color: '#fff', borderRadius: '9999px',
+                fontSize: 9, fontWeight: 700,
+                minWidth: 16, height: 16, lineHeight: '16px',
+                textAlign: 'center', padding: '0 3px',
+              }}>
+                {alertSummary.total > 99 ? '99+' : alertSummary.total}
+              </span>
+            )}
+          </button>
           <span style={{ fontSize: 'var(--fs-body-sm)', opacity: 0.85 }}>
             {username}{' '}
             <span style={{ opacity: 0.65, fontSize: 'var(--fs-label)' }}>({roleLabel})</span>
@@ -638,30 +674,24 @@ export default function DashboardPage({ auth, setAuth }) {
         </div>
       </header>
 
-      {isSupplierOnly ? (
-        <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
-          <SupplierPortalPage />
-        </main>
-      ) : (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar
-            activeNav={activeNav}
-            onNavChange={handleNavChange}
-            roles={roles}
-            alertSummary={alertSummary}
-            searchQuery={searchQuery}
-            onSearchQuery={setSearchQuery}
-            onSearchSubmit={handleSearchSubmit}
-            collapsed={collapsed}
-            onToggleCollapse={handleToggleCollapse}
-          />
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <Sidebar
+          activeNav={activeNav}
+          onNavChange={handleNavChange}
+          roles={roles}
+          alertSummary={alertSummary}
+          searchQuery={searchQuery}
+          onSearchQuery={setSearchQuery}
+          onSearchSubmit={handleSearchSubmit}
+          collapsed={collapsed}
+          onToggleCollapse={handleToggleCollapse}
+        />
 
-          {/* Main Content */}
-          <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
-            {renderContent()}
-          </main>
-        </div>
-      )}
+        {/* Main Content */}
+        <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
+          {renderContent()}
+        </main>
+      </div>
     </div>
   )
 }

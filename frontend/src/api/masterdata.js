@@ -3,6 +3,7 @@ import api from './auth.js'
 // ── Location Types ──────────────────────────────────────────────────────────
 export const getLocationTypes = () => api.get('/location-types')
 export const createLocationType = (data) => api.post('/location-types', data)
+export const updateLocationType = (id, data) => api.put(`/location-types/${id}`, data)
 
 // ── Locations ───────────────────────────────────────────────────────────────
 export const getLocations = () => api.get('/locations')

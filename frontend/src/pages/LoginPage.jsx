@@ -24,7 +24,8 @@ export default function LoginPage({ setAuth }) {
     try {
       const data = await login(username, password)
       setAuth({ token: data.access_token, role: data.role, roles: data.roles || [data.role], username: data.username })
-      navigate('/dashboard', { replace: true })
+      const dest = data.role === 'supplier' ? '/supplier-portal' : '/dashboard'
+      navigate(dest, { replace: true })
     } catch {
       setError('Invalid username or password')
     } finally {
@@ -38,7 +39,7 @@ export default function LoginPage({ setAuth }) {
         {/* Brand bar */}
         <div style={{ background: 'var(--cadet-dark)', borderRadius: 'var(--radius-card) var(--radius-card) 0 0', padding: '1.5rem 2rem', textAlign: 'center' }}>
           <div style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-h2)', color: '#fff', letterSpacing: '-0.01em' }}>
-            Inventory Management System
+            Terminal Stock App
           </div>
           <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 'var(--fs-body-sm)', marginTop: 4 }}>
             Payment Terminal Management

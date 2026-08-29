@@ -7,7 +7,7 @@ Prefix: /api/returns
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
@@ -72,6 +72,9 @@ def transition_serial(
     actor_user_id: int,
     notes: str,
     order_reference: str = None,
+    activity_cost: float = None,
+    activity_cost_currency: str = None,
+    reporting_currency_equiv: float = None,
 ) -> None:
     serial.current_state_id = state.id
     history = StateHistory(
@@ -84,6 +87,9 @@ def transition_serial(
         activity_description=get_activity_description(state.code),
         order_reference=order_reference,
         notes=notes,
+        activity_cost=activity_cost,
+        activity_cost_currency=activity_cost_currency,
+        reporting_currency_equiv=reporting_currency_equiv,
     )
     db.add(history)
 
@@ -562,6 +568,11 @@ def update_repair_order(
         elif new_status == "Returned":
             available_refurb = get_state(db, "AVAILABLE_REFURBISHED")
             if available_refurb:
+                # Resolve cost at transition time (payload may update it simultaneously)
+                resolved_cost = payload.actual_cost if payload.actual_cost is not None else ro.actual_cost
+                resolved_currency = payload.actual_cost_currency if payload.actual_cost_currency is not None else ro.actual_cost_currency
+                num_serials = len([s for s in ro.serials if s.serial])
+                cost_per_serial = (resolved_cost / num_serials) if (resolved_cost is not None and num_serials > 0) else None
                 for rrs in ro.serials:
                     if rrs.serial:
                         # Update location to return_location if set
@@ -571,6 +582,9 @@ def update_repair_order(
                             db, rrs.serial, available_refurb, current_user.id,
                             f"Returned from repair — Repair Order {ro.order_number}",
                             order_reference=ro.order_number,
+                            activity_cost=cost_per_serial,
+                            activity_cost_currency=resolved_currency,
+                            reporting_currency_equiv=cost_per_serial,
                         )
 
         ro.status = new_status
@@ -592,3 +606,85 @@ def update_repair_order(
     db.commit()
     db.refresh(ro)
     return repair_to_out(ro)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3E — Repair document upload / list
+# ---------------------------------------------------------------------------
+import os
+
+REPAIR_DOC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "repair_documents")
+os.makedirs(REPAIR_DOC_DIR, exist_ok=True)
+ALLOWED_DOC_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.bmp'}
+
+@router.post("/repair/{rr_id}/documents")
+async def upload_repair_document(
+    rr_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a document against a Repair & Rework order."""
+    ALLOWED_ROLES = {"admin", "supply_planner", "warehouse_user", "repair_centre", "rma_manager"}
+    roles = getattr(current_user, "roles_list", [current_user.role])
+    if not any(r in ALLOWED_ROLES for r in roles):
+        raise HTTPException(status_code=403, detail="Not authorized to upload repair documents")
+
+    from models import RepairReworkOrder, RepairDocument
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_DOC_EXTENSIONS:
+        raise HTTPException(400, f"File type {ext} not allowed. Accepted: {', '.join(sorted(ALLOWED_DOC_EXTENSIONS))}")
+
+    # Support both RepairReworkOrder (Phase 3E RMA flow) and legacy RepairOrder
+    rr = db.query(RepairReworkOrder).filter(RepairReworkOrder.id == rr_id).first()
+    if not rr:
+        legacy = db.query(RepairOrder).filter(RepairOrder.id == rr_id).first()
+        if not legacy:
+            raise HTTPException(404, "Repair order not found")
+
+    contents = await file.read()
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(400, "File too large. Maximum 2MB.")
+
+    safe_name = f"rr{rr_id}_{os.path.basename(file.filename).replace(' ', '_')}"
+    dest = os.path.join(REPAIR_DOC_DIR, safe_name)
+    with open(dest, "wb") as f_out:
+        f_out.write(contents)
+
+    doc = RepairDocument(
+        rr_order_id=rr_id,
+        file_name=file.filename,
+        file_path=dest,
+        file_size_bytes=len(contents),
+        uploaded_by_user_id=current_user.id,
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+
+    return {
+        "id": doc.id,
+        "file_name": doc.file_name,
+        "file_size_bytes": doc.file_size_bytes,
+        "uploaded_at": str(doc.uploaded_at),
+        "uploaded_by": current_user.username,
+    }
+
+
+@router.get("/repair/{rr_id}/documents")
+def list_repair_documents(
+    rr_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List documents uploaded to a repair order (RepairReworkOrder or legacy RepairOrder)."""
+    from models import RepairDocument
+    docs = db.query(RepairDocument).filter(RepairDocument.rr_order_id == rr_id).order_by(RepairDocument.uploaded_at.desc()).all()
+    return [{
+        "id": d.id,
+        "file_name": d.file_name,
+        "file_size_bytes": d.file_size_bytes,
+        "uploaded_at": str(d.uploaded_at) if d.uploaded_at else None,
+        "uploaded_by": d.uploaded_by.username if d.uploaded_by else None,
+    } for d in docs]

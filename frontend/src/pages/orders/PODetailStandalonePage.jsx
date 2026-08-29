@@ -19,8 +19,13 @@ export default function PODetailStandalonePage() {
       .catch(() => { setError(`Purchase order "${poNumber}" not found.`); setLoading(false) })
   }, [poNumber])
 
+  function goBack() {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/')
+  }
+
   return (
-    <AppShell title={`Purchase Order — ${poNumber}`} onBack={() => navigate(-1)}>
+    <AppShell title={`Purchase Order — ${poNumber}`} onBack={goBack}>
       <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
         {loading && <p style={{ color: 'var(--fg-muted)' }}>Loading…</p>}
         {error && <p style={{ color: 'var(--alert)' }}>{error}</p>}
@@ -28,7 +33,7 @@ export default function PODetailStandalonePage() {
           <PODetailPage
             poId={poId}
             role={role}
-            onBack={() => navigate(-1)}
+            onBack={goBack}
           />
         )}
       </div>

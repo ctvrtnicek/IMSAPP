@@ -1,32 +1,39 @@
 """
-Regenerates schema_postgres.sql by reflecting the live local SQLite dev DB
-(backend/terminal_tracking.db) and compiling Postgres-dialect DDL from it.
+Regenerates schema_postgres.sql AND schema.sql by reflecting the live local
+SQLite dev DB (backend/terminal_tracking.db) and compiling dialect-specific
+DDL from it.
 
 Why: hand-maintained schema.sql drifted from the real dev schema over many
-migrate_vNN.py / backend/migrations/*.py patches, so Postgres deploys were
-being built from a stale/incomplete table structure. This script makes the
-live SQLite DB the single source of truth for what Postgres should look like.
+migrate_vNN.py / backend/migrations/*.py patches, so both SQLite fresh-clone
+bootstraps and Postgres deploys were being built from a stale/incomplete
+table structure. This script makes the live SQLite DB the single source of
+truth for what both should look like.
 
 Run from the backend/ directory:
     python tools/generate_pg_schema.py
 
-Foreign keys are added via separate ALTER TABLE statements (not inline on
-CREATE TABLE) because a handful of tables have FK cycles between them
-(e.g. firmware <-> outbound_orders <-> products <-> return_orders), which
-makes a single dependency-ordered CREATE TABLE pass impossible.
+Postgres foreign keys are added via separate ALTER TABLE statements (not
+inline on CREATE TABLE) because a handful of tables have FK cycles between
+them (e.g. firmware <-> outbound_orders <-> products <-> return_orders),
+which makes a single dependency-ordered CREATE TABLE pass impossible.
+schema.sql (SQLite) keeps FKs inline instead, since SQLite doesn't support
+adding a FK via ALTER TABLE at all — but it also doesn't validate that a
+FK's referenced table exists at CREATE TABLE time, so creation order for
+the cyclic tables doesn't matter there the way it does for Postgres.
 """
 from pathlib import Path
 
 from sqlalchemy import create_engine, MetaData
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_DIR.parent
 SQLITE_DB = BACKEND_DIR / "terminal_tracking.db"
-OUT_FILE = REPO_ROOT / "schema_postgres.sql"
+PG_OUT_FILE = REPO_ROOT / "schema_postgres.sql"
+SQLITE_OUT_FILE = REPO_ROOT / "schema.sql"
 
-HEADER = """-- ============================================================================
+PG_HEADER = """-- ============================================================================
 -- Auto-generated Postgres schema — reflected from local dev terminal_tracking.db
 -- Regenerate with: backend/tools/generate_pg_schema.py
 -- Do not hand-edit; fix the source SQLite DB / ORM models and regenerate instead.
@@ -34,10 +41,33 @@ HEADER = """-- =================================================================
 
 """
 
+SQLITE_HEADER = """-- ============================================================================
+-- Auto-generated SQLite schema — reflected from local dev terminal_tracking.db
+-- Regenerate with: backend/tools/generate_pg_schema.py
+-- Used to bootstrap a fresh clone's local SQLite DB. Do not hand-edit; fix the
+-- source SQLite DB / ORM models and regenerate instead.
+-- ============================================================================
+
+"""
+
+
+def generate_sqlite_schema(eng):
+    meta = MetaData()
+    meta.reflect(bind=eng)
+    lite = sqlite.dialect()
+    ddls = [
+        str(CreateTable(table, if_not_exists=True).compile(dialect=lite)).strip() + ";"
+        for table in meta.tables.values()
+    ]
+    SQLITE_OUT_FILE.write_text(SQLITE_HEADER + "\n".join(ddls) + "\n", encoding="utf-8")
+    print(f"Wrote {SQLITE_OUT_FILE} — {len(ddls)} tables")
+
 
 def main():
     eng = create_engine(f"sqlite:///{SQLITE_DB}")
     pg = postgresql.dialect()
+
+    generate_sqlite_schema(eng)
 
     # Pass 1 — CREATE TABLE without inline FKs (avoids ordering/cycle issues)
     meta = MetaData()
@@ -74,11 +104,11 @@ def main():
                 f"FOREIGN KEY ({', '.join(cols)}) REFERENCES {reftable} ({', '.join(refcols)});"
             )
 
-    OUT_FILE.write_text(
-        HEADER + "\n".join(table_ddls) + "\n\n-- Foreign Keys\n" + "\n".join(fk_ddls) + "\n",
+    PG_OUT_FILE.write_text(
+        PG_HEADER + "\n".join(table_ddls) + "\n\n-- Foreign Keys\n" + "\n".join(fk_ddls) + "\n",
         encoding="utf-8",
     )
-    print(f"Wrote {OUT_FILE} — {len(table_ddls)} tables, {len(fk_ddls)} foreign keys")
+    print(f"Wrote {PG_OUT_FILE} — {len(table_ddls)} tables, {len(fk_ddls)} foreign keys")
 
 
 if __name__ == "__main__":

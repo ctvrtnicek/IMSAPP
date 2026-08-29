@@ -6,12 +6,17 @@ Added while chasing the Postgres deploy going out of sync with local dev data
 Base.metadata.create_all() created incomplete tables before schema.sql got a
 chance to). Lets an admin inspect the last schema/seed run and force a clean
 rebuild via the API, without needing direct DB or hosting-dashboard access.
+
+/reseed kicks the actual work off in a background thread and returns
+immediately — a full schema+seed pass is ~1000 statements against Postgres,
+which comfortably exceeds Render's front-door proxy request timeout if run
+synchronously in the request handler. Poll /status for progress/results.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import text
 
+import database
 from auth import get_current_user
-from database import engine, init_database, last_init_summary
 from models import Base, User
 
 router = APIRouter(prefix="/api/admin/db", tags=["admin-db"])
@@ -26,9 +31,9 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 @router.get("/status")
 def db_status(current_user: User = Depends(require_admin)):
-    """Row counts for the tables that matter most, plus the last init_database() run."""
+    """Row counts for the tables that matter most, plus the last/in-flight init_database() run."""
     counts = {}
-    with engine.connect() as conn:
+    with database.engine.connect() as conn:
         for t in [
             "users", "locations", "suppliers", "products", "customers",
             "purchase_orders", "outbound_orders", "serial_numbers",
@@ -38,17 +43,35 @@ def db_status(current_user: User = Depends(require_admin)):
                 counts[t] = conn.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar()
             except Exception as e:
                 counts[t] = f"error: {str(e).splitlines()[0][:150]}"
-    return {"dialect": engine.dialect.name, "counts": counts, "last_init": last_init_summary}
+    return {
+        "dialect": database.engine.dialect.name,
+        "counts": counts,
+        "init_state": database.init_state,
+        "last_init": database.last_init_summary,
+    }
+
+
+def _do_reseed(drop_first: bool):
+    if drop_first:
+        if database.engine.dialect.name == "postgresql":
+            with database.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+        else:
+            Base.metadata.drop_all(bind=database.engine)
+    database.init_database()
+    Base.metadata.create_all(bind=database.engine)  # safety net for any ORM-only tables
 
 
 @router.post("/reseed")
 def reseed(
+    background_tasks: BackgroundTasks,
     drop_first: bool = False,
     current_user: User = Depends(require_admin),
 ):
     """
-    Re-run schema creation + seed.sql. Idempotent (every seed INSERT uses
-    ON CONFLICT DO NOTHING) — safe to call any time.
+    Re-run schema creation + seed.sql in the background. Idempotent (every
+    seed INSERT uses ON CONFLICT DO NOTHING) — safe to call any time.
 
     drop_first=true additionally wipes every table first for a fully clean
     rebuild — use when a table already exists with an incomplete/stale column
@@ -56,13 +79,7 @@ def reseed(
     DROP SCHEMA ... CASCADE on Postgres since a handful of tables have
     circular FK references that Base.metadata.drop_all() can't order safely.
     """
-    if drop_first:
-        if engine.dialect.name == "postgresql":
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                conn.execute(text("DROP SCHEMA public CASCADE"))
-                conn.execute(text("CREATE SCHEMA public"))
-        else:
-            Base.metadata.drop_all(bind=engine)
-    summary = init_database()
-    Base.metadata.create_all(bind=engine)  # safety net for any ORM-only tables
-    return summary
+    if database.init_state["running"]:
+        return {"status": "already running", "init_state": database.init_state}
+    background_tasks.add_task(_do_reseed, drop_first)
+    return {"status": "started", "drop_first": drop_first, "poll": "GET /api/admin/db/status"}

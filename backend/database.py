@@ -34,6 +34,29 @@ last_init_summary = {}
 _init_lock = threading.Lock()
 
 
+def _strip_leading_comments(stmt: str) -> str:
+    """
+    sqlparse.split() glues a `-- comment` line onto the *next* statement
+    whenever there's no blank-line/semicolon boundary between them (e.g. the
+    "-- tablename (N rows)" header line immediately above each table's first
+    INSERT in seed.sql) — the split doesn't happen at the comment, only at
+    the following semicolon. A naive `stmt.startswith("--")` check then
+    silently discards that whole merged chunk as "just a comment", losing
+    the first row of every table. Strip only the leading comment/blank
+    lines instead, so the SQL underneath still runs.
+    """
+    lines = stmt.splitlines()
+    i = 0
+    while i < len(lines) and (not lines[i].strip() or lines[i].strip().startswith("--")):
+        i += 1
+    return "\n".join(lines[i:]).strip()
+
+
+def _clean_statements(raw_statements):
+    cleaned = (_strip_leading_comments(s) for s in raw_statements)
+    return [s for s in cleaned if s]
+
+
 def _is_benign(msg: str) -> bool:
     """Errors we expect on a rerun (table/constraint already there, row already seeded)."""
     m = msg.lower()
@@ -96,14 +119,14 @@ def init_database():
         if schema_path.exists():
             sql = schema_path.read_text(encoding="utf-8")
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                ok, errors = _run_statements(conn, sqlparse.split(sql), "schema")
+                ok, errors = _run_statements(conn, _clean_statements(sqlparse.split(sql)), "schema")
             summary["schema"] = {"ok": ok, "errors": errors}
         print("Database schema ensured.")
 
         seed_path = Path(__file__).parent.parent / "seed.sql"
         if seed_path.exists():
             seed_sql = seed_path.read_text(encoding="utf-8")
-            stmts = [s.strip() for s in sqlparse.split(seed_sql) if s.strip() and not s.strip().startswith("--")]
+            stmts = _clean_statements(sqlparse.split(seed_sql))
             # Every INSERT in seed.sql uses ON CONFLICT DO NOTHING, so re-running the
             # full seed is safe/idempotent — it only fills in rows that are actually
             # missing. Deliberately no "already seeded, skip" guard: a guard keyed on

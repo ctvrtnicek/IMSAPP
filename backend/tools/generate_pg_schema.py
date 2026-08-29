@@ -21,9 +21,10 @@ adding a FK via ALTER TABLE at all — but it also doesn't validate that a
 FK's referenced table exists at CREATE TABLE time, so creation order for
 the cyclic tables doesn't matter there the way it does for Postgres.
 """
+import re
 from pathlib import Path
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import BLOB, LargeBinary, create_engine, MetaData, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.schema import CreateTable, ForeignKeyConstraint
 
@@ -51,6 +52,31 @@ SQLITE_HEADER = """-- ==========================================================
 """
 
 
+def _normalize_for_postgres(meta):
+    """
+    Two things SQLite tolerates that reflect() carries through verbatim and
+    Postgres rejects:
+      - BLOB columns (products.image_data, claim_attachments.data) reflect as
+        SQLAlchemy's generic BLOB type, which has no Postgres rendering
+        ("type "blob" does not exist"). Postgres's binary type is BYTEA,
+        which SQLAlchemy's LargeBinary maps to correctly per-dialect.
+      - A DEFAULT written with double quotes (supply_flows.lead_time_unit
+        DEFAULT "days") is a string literal in SQLite's lenient quoting, but
+        Postgres only accepts double quotes for identifiers — it reads
+        DEFAULT "days" as "default to the value of column days", failing
+        with "cannot use column reference in DEFAULT expression".
+    """
+    for table in meta.tables.values():
+        for col in table.columns:
+            if isinstance(col.type, BLOB):
+                col.type = LargeBinary()
+            default = col.server_default
+            if default is not None and hasattr(default.arg, "text"):
+                m = re.fullmatch(r'"(.*)"', default.arg.text)
+                if m:
+                    default.arg = text("'" + m.group(1).replace("'", "''") + "'")
+
+
 def generate_sqlite_schema(eng):
     meta = MetaData()
     meta.reflect(bind=eng)
@@ -72,6 +98,7 @@ def main():
     # Pass 1 — CREATE TABLE without inline FKs (avoids ordering/cycle issues)
     meta = MetaData()
     meta.reflect(bind=eng)
+    _normalize_for_postgres(meta)
     table_ddls = []
     for table in meta.tables.values():
         for fk in [c for c in table.constraints if isinstance(c, ForeignKeyConstraint)]:

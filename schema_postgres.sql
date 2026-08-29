@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS products (
 	battery_life_days INTEGER, 
 	warranty_days INTEGER, 
 	repair_max_days INTEGER, 
-	image_data BLOB, 
+	image_data BYTEA, 
 	image_content_type TEXT, 
 	latest_firmware_id INTEGER, 
 	PRIMARY KEY (id), 
@@ -547,7 +547,7 @@ CREATE TABLE IF NOT EXISTS claim_attachments (
 	claim_id INTEGER NOT NULL, 
 	filename TEXT NOT NULL, 
 	content_type TEXT, 
-	data BLOB NOT NULL, 
+	data BYTEA NOT NULL, 
 	uploaded_by_user_id INTEGER, 
 	uploaded_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
 	PRIMARY KEY (id)
@@ -706,7 +706,7 @@ CREATE TABLE IF NOT EXISTS supply_flows (
 	flow_type TEXT NOT NULL, 
 	active INTEGER DEFAULT 1 NOT NULL, 
 	lead_time REAL, 
-	lead_time_unit TEXT DEFAULT "days" NOT NULL, 
+	lead_time_unit TEXT DEFAULT 'days' NOT NULL, 
 	PRIMARY KEY (id)
 );
 CREATE TABLE IF NOT EXISTS network_versions (
@@ -1067,12 +1067,12 @@ ALTER TABLE ai_conversations ADD CONSTRAINT fk_ai_conversations_1 FOREIGN KEY (u
 ALTER TABLE ai_messages ADD CONSTRAINT fk_ai_messages_1 FOREIGN KEY (conversation_id) REFERENCES ai_conversations (id);
 ALTER TABLE alerts ADD CONSTRAINT fk_alerts_1 FOREIGN KEY (location_id) REFERENCES locations (id);
 ALTER TABLE alerts ADD CONSTRAINT fk_alerts_2 FOREIGN KEY (product_id) REFERENCES products (id);
-ALTER TABLE alerts ADD CONSTRAINT fk_alerts_3 FOREIGN KEY (serial_id) REFERENCES serial_numbers (id);
-ALTER TABLE alerts ADD CONSTRAINT fk_alerts_4 FOREIGN KEY (rule_id) REFERENCES alert_rules (id);
+ALTER TABLE alerts ADD CONSTRAINT fk_alerts_3 FOREIGN KEY (rule_id) REFERENCES alert_rules (id);
+ALTER TABLE alerts ADD CONSTRAINT fk_alerts_4 FOREIGN KEY (serial_id) REFERENCES serial_numbers (id);
 ALTER TABLE alerts ADD CONSTRAINT fk_alerts_5 FOREIGN KEY (acknowledged_by_user_id) REFERENCES users (id);
 ALTER TABLE assembly_times ADD CONSTRAINT fk_assembly_times_1 FOREIGN KEY (location_id) REFERENCES locations (id);
-ALTER TABLE atp_rules ADD CONSTRAINT fk_atp_rules_1 FOREIGN KEY (region_id) REFERENCES regions (id);
-ALTER TABLE atp_rules ADD CONSTRAINT fk_atp_rules_2 FOREIGN KEY (segment_id) REFERENCES customer_segments (id);
+ALTER TABLE atp_rules ADD CONSTRAINT fk_atp_rules_1 FOREIGN KEY (segment_id) REFERENCES customer_segments (id);
+ALTER TABLE atp_rules ADD CONSTRAINT fk_atp_rules_2 FOREIGN KEY (region_id) REFERENCES regions (id);
 ALTER TABLE business_calendar_holidays ADD CONSTRAINT fk_business_calendar_holidays_1 FOREIGN KEY (calendar_id) REFERENCES business_calendars (id);
 ALTER TABLE business_calendars ADD CONSTRAINT fk_business_calendars_1 FOREIGN KEY (location_id) REFERENCES locations (id);
 ALTER TABLE business_calendars ADD CONSTRAINT fk_business_calendars_2 FOREIGN KEY (supplier_id) REFERENCES suppliers (id);
@@ -1086,13 +1086,13 @@ ALTER TABLE claims ADD CONSTRAINT fk_claims_5 FOREIGN KEY (po_id) REFERENCES pur
 ALTER TABLE countries ADD CONSTRAINT fk_countries_1 FOREIGN KEY (region_id) REFERENCES regions (id);
 ALTER TABLE customers ADD CONSTRAINT fk_customers_1 FOREIGN KEY (country_id) REFERENCES countries (id);
 ALTER TABLE customers ADD CONSTRAINT fk_customers_2 FOREIGN KEY (segment_id) REFERENCES customer_segments (id);
-ALTER TABLE demand_signals ADD CONSTRAINT fk_demand_signals_1 FOREIGN KEY (location_id) REFERENCES locations (id);
-ALTER TABLE demand_signals ADD CONSTRAINT fk_demand_signals_2 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
-ALTER TABLE demand_signals ADD CONSTRAINT fk_demand_signals_3 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE demand_signals ADD CONSTRAINT fk_demand_signals_1 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
+ALTER TABLE demand_signals ADD CONSTRAINT fk_demand_signals_2 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE demand_signals ADD CONSTRAINT fk_demand_signals_3 FOREIGN KEY (location_id) REFERENCES locations (id);
 ALTER TABLE distribution_order_lines ADD CONSTRAINT fk_distribution_order_lines_1 FOREIGN KEY (dist_order_id) REFERENCES distribution_orders (id);
 ALTER TABLE distribution_order_lines ADD CONSTRAINT fk_distribution_order_lines_2 FOREIGN KEY (product_id) REFERENCES products (id);
-ALTER TABLE distribution_order_nonserial ADD CONSTRAINT fk_distribution_order_nonserial_1 FOREIGN KEY (dist_order_id) REFERENCES distribution_orders (id);
-ALTER TABLE distribution_order_nonserial ADD CONSTRAINT fk_distribution_order_nonserial_2 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE distribution_order_nonserial ADD CONSTRAINT fk_distribution_order_nonserial_1 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE distribution_order_nonserial ADD CONSTRAINT fk_distribution_order_nonserial_2 FOREIGN KEY (dist_order_id) REFERENCES distribution_orders (id);
 ALTER TABLE distribution_order_serials ADD CONSTRAINT fk_distribution_order_serials_1 FOREIGN KEY (dist_order_id) REFERENCES distribution_orders (id);
 ALTER TABLE distribution_order_serials ADD CONSTRAINT fk_distribution_order_serials_2 FOREIGN KEY (serial_id) REFERENCES serial_numbers (id);
 ALTER TABLE distribution_orders ADD CONSTRAINT fk_distribution_orders_1 FOREIGN KEY (origin_location_id) REFERENCES locations (id);
@@ -1103,11 +1103,11 @@ ALTER TABLE distribution_received ADD CONSTRAINT fk_distribution_received_2 FORE
 ALTER TABLE firmware ADD CONSTRAINT fk_firmware_1 FOREIGN KEY (product_id) REFERENCES products (id);
 ALTER TABLE flow_constraints ADD CONSTRAINT fk_flow_constraints_1 FOREIGN KEY (flow_id) REFERENCES supply_flows (id);
 ALTER TABLE flow_constraints ADD CONSTRAINT fk_flow_constraints_2 FOREIGN KEY (product_id) REFERENCES products (id);
-ALTER TABLE goods_receipt_messages ADD CONSTRAINT fk_goods_receipt_messages_1 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
+ALTER TABLE goods_receipt_messages ADD CONSTRAINT fk_goods_receipt_messages_1 FOREIGN KEY (location_id) REFERENCES locations (id);
 ALTER TABLE goods_receipt_messages ADD CONSTRAINT fk_goods_receipt_messages_2 FOREIGN KEY (po_id) REFERENCES purchase_orders (id);
-ALTER TABLE goods_receipt_messages ADD CONSTRAINT fk_goods_receipt_messages_3 FOREIGN KEY (location_id) REFERENCES locations (id);
-ALTER TABLE inbound_shipments ADD CONSTRAINT fk_inbound_shipments_1 FOREIGN KEY (uploaded_by_user_id) REFERENCES users (id);
-ALTER TABLE inbound_shipments ADD CONSTRAINT fk_inbound_shipments_2 FOREIGN KEY (po_id) REFERENCES purchase_orders (id);
+ALTER TABLE goods_receipt_messages ADD CONSTRAINT fk_goods_receipt_messages_3 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
+ALTER TABLE inbound_shipments ADD CONSTRAINT fk_inbound_shipments_1 FOREIGN KEY (po_id) REFERENCES purchase_orders (id);
+ALTER TABLE inbound_shipments ADD CONSTRAINT fk_inbound_shipments_2 FOREIGN KEY (uploaded_by_user_id) REFERENCES users (id);
 ALTER TABLE locations ADD CONSTRAINT fk_locations_1 FOREIGN KEY (location_type_id) REFERENCES location_types (id);
 ALTER TABLE locations ADD CONSTRAINT fk_locations_2 FOREIGN KEY (region_id) REFERENCES regions (id);
 ALTER TABLE locations ADD CONSTRAINT fk_locations_3 FOREIGN KEY (country_id) REFERENCES countries (id);
@@ -1126,10 +1126,10 @@ ALTER TABLE outbound_order_serials ADD CONSTRAINT fk_outbound_order_serials_2 FO
 ALTER TABLE outbound_order_serials ADD CONSTRAINT fk_outbound_order_serials_3 FOREIGN KEY (serial_id) REFERENCES serial_numbers (id);
 ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_1 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
 ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_2 FOREIGN KEY (allocation_source_order_id) REFERENCES outbound_orders (id);
-ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_3 FOREIGN KEY (linked_return_order_id) REFERENCES return_orders (id);
-ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_4 FOREIGN KEY (customer_id) REFERENCES customers (id);
-ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_5 FOREIGN KEY (destination_location_id) REFERENCES locations (id);
-ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_6 FOREIGN KEY (fulfilling_location_id) REFERENCES locations (id);
+ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_3 FOREIGN KEY (customer_id) REFERENCES customers (id);
+ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_4 FOREIGN KEY (destination_location_id) REFERENCES locations (id);
+ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_5 FOREIGN KEY (fulfilling_location_id) REFERENCES locations (id);
+ALTER TABLE outbound_orders ADD CONSTRAINT fk_outbound_orders_6 FOREIGN KEY (linked_return_order_id) REFERENCES return_orders (id);
 ALTER TABLE product_alternatives ADD CONSTRAINT fk_product_alternatives_1 FOREIGN KEY (product_id) REFERENCES products (id);
 ALTER TABLE product_alternatives ADD CONSTRAINT fk_product_alternatives_2 FOREIGN KEY (alternative_product_id) REFERENCES products (id);
 ALTER TABLE product_bom_components ADD CONSTRAINT fk_product_bom_components_1 FOREIGN KEY (parent_product_id) REFERENCES products (id);
@@ -1140,10 +1140,10 @@ ALTER TABLE product_interchangeable ADD CONSTRAINT fk_product_interchangeable_2 
 ALTER TABLE product_pricing ADD CONSTRAINT fk_product_pricing_1 FOREIGN KEY (product_id) REFERENCES products (id);
 ALTER TABLE product_pricing ADD CONSTRAINT fk_product_pricing_2 FOREIGN KEY (region_id) REFERENCES regions (id);
 ALTER TABLE product_pricing ADD CONSTRAINT fk_product_pricing_3 FOREIGN KEY (country_id) REFERENCES countries (id);
-ALTER TABLE product_repair_centres ADD CONSTRAINT fk_product_repair_centres_1 FOREIGN KEY (location_id) REFERENCES locations (id);
-ALTER TABLE product_repair_centres ADD CONSTRAINT fk_product_repair_centres_2 FOREIGN KEY (product_id) REFERENCES products (id);
-ALTER TABLE product_suppliers ADD CONSTRAINT fk_product_suppliers_1 FOREIGN KEY (supplier_id) REFERENCES suppliers (id);
-ALTER TABLE product_suppliers ADD CONSTRAINT fk_product_suppliers_2 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE product_repair_centres ADD CONSTRAINT fk_product_repair_centres_1 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE product_repair_centres ADD CONSTRAINT fk_product_repair_centres_2 FOREIGN KEY (location_id) REFERENCES locations (id);
+ALTER TABLE product_suppliers ADD CONSTRAINT fk_product_suppliers_1 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE product_suppliers ADD CONSTRAINT fk_product_suppliers_2 FOREIGN KEY (supplier_id) REFERENCES suppliers (id);
 ALTER TABLE products ADD CONSTRAINT fk_products_1 FOREIGN KEY (latest_firmware_id) REFERENCES firmware (id);
 ALTER TABLE purchase_order_lines ADD CONSTRAINT fk_purchase_order_lines_1 FOREIGN KEY (product_id) REFERENCES products (id);
 ALTER TABLE purchase_order_lines ADD CONSTRAINT fk_purchase_order_lines_2 FOREIGN KEY (po_id) REFERENCES purchase_orders (id);
@@ -1161,8 +1161,8 @@ ALTER TABLE repair_orders ADD CONSTRAINT fk_repair_orders_4 FOREIGN KEY (created
 ALTER TABLE repair_rework_orders ADD CONSTRAINT fk_repair_rework_orders_1 FOREIGN KEY (location_id) REFERENCES locations (id);
 ALTER TABLE repair_rework_orders ADD CONSTRAINT fk_repair_rework_orders_2 FOREIGN KEY (return_location_id) REFERENCES locations (id);
 ALTER TABLE repair_rework_orders ADD CONSTRAINT fk_repair_rework_orders_3 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
-ALTER TABLE repair_rework_received ADD CONSTRAINT fk_repair_rework_received_1 FOREIGN KEY (rr_order_id) REFERENCES repair_rework_orders (id);
-ALTER TABLE repair_rework_received ADD CONSTRAINT fk_repair_rework_received_2 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE repair_rework_received ADD CONSTRAINT fk_repair_rework_received_1 FOREIGN KEY (product_id) REFERENCES products (id);
+ALTER TABLE repair_rework_received ADD CONSTRAINT fk_repair_rework_received_2 FOREIGN KEY (rr_order_id) REFERENCES repair_rework_orders (id);
 ALTER TABLE repair_rework_serials ADD CONSTRAINT fk_repair_rework_serials_1 FOREIGN KEY (rr_order_id) REFERENCES repair_rework_orders (id);
 ALTER TABLE repair_rework_serials ADD CONSTRAINT fk_repair_rework_serials_2 FOREIGN KEY (serial_id) REFERENCES serial_numbers (id);
 ALTER TABLE return_order_serials ADD CONSTRAINT fk_return_order_serials_1 FOREIGN KEY (serial_id) REFERENCES serial_numbers (id);
@@ -1172,8 +1172,8 @@ ALTER TABLE return_orders ADD CONSTRAINT fk_return_orders_2 FOREIGN KEY (created
 ALTER TABLE return_orders ADD CONSTRAINT fk_return_orders_3 FOREIGN KEY (linked_rr_order_id) REFERENCES repair_rework_orders (id);
 ALTER TABLE return_orders ADD CONSTRAINT fk_return_orders_4 FOREIGN KEY (original_order_id) REFERENCES outbound_orders (id);
 ALTER TABLE return_orders ADD CONSTRAINT fk_return_orders_5 FOREIGN KEY (customer_id) REFERENCES customers (id);
-ALTER TABLE safety_stock_targets ADD CONSTRAINT fk_safety_stock_targets_1 FOREIGN KEY (product_id) REFERENCES products (id);
-ALTER TABLE safety_stock_targets ADD CONSTRAINT fk_safety_stock_targets_2 FOREIGN KEY (location_id) REFERENCES locations (id);
+ALTER TABLE safety_stock_targets ADD CONSTRAINT fk_safety_stock_targets_1 FOREIGN KEY (location_id) REFERENCES locations (id);
+ALTER TABLE safety_stock_targets ADD CONSTRAINT fk_safety_stock_targets_2 FOREIGN KEY (product_id) REFERENCES products (id);
 ALTER TABLE safety_stock_targets ADD CONSTRAINT fk_safety_stock_targets_3 FOREIGN KEY (created_by_user_id) REFERENCES users (id);
 ALTER TABLE serial_import_batches ADD CONSTRAINT fk_serial_import_batches_1 FOREIGN KEY (imported_by_user_id) REFERENCES users (id);
 ALTER TABLE serial_import_batches ADD CONSTRAINT fk_serial_import_batches_2 FOREIGN KEY (po_id) REFERENCES purchase_orders (id);
@@ -1193,22 +1193,22 @@ ALTER TABLE state_history ADD CONSTRAINT fk_state_history_3 FOREIGN KEY (locatio
 ALTER TABLE state_history ADD CONSTRAINT fk_state_history_4 FOREIGN KEY (actor_user_id) REFERENCES users (id);
 ALTER TABLE state_transitions ADD CONSTRAINT fk_state_transitions_1 FOREIGN KEY (from_state_id) REFERENCES terminal_states (id);
 ALTER TABLE state_transitions ADD CONSTRAINT fk_state_transitions_2 FOREIGN KEY (to_state_id) REFERENCES terminal_states (id);
-ALTER TABLE state_valid_location_types ADD CONSTRAINT fk_state_valid_location_types_1 FOREIGN KEY (state_id) REFERENCES terminal_states (id);
-ALTER TABLE state_valid_location_types ADD CONSTRAINT fk_state_valid_location_types_2 FOREIGN KEY (location_type_id) REFERENCES location_types (id);
+ALTER TABLE state_valid_location_types ADD CONSTRAINT fk_state_valid_location_types_1 FOREIGN KEY (location_type_id) REFERENCES location_types (id);
+ALTER TABLE state_valid_location_types ADD CONSTRAINT fk_state_valid_location_types_2 FOREIGN KEY (state_id) REFERENCES terminal_states (id);
 ALTER TABLE supplier_users ADD CONSTRAINT fk_supplier_users_1 FOREIGN KEY (user_id) REFERENCES users (id);
 ALTER TABLE supplier_users ADD CONSTRAINT fk_supplier_users_2 FOREIGN KEY (supplier_id) REFERENCES suppliers (id);
-ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_1 FOREIGN KEY (from_location_id) REFERENCES locations (id);
-ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_2 FOREIGN KEY (to_location_id) REFERENCES locations (id);
-ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_3 FOREIGN KEY (to_supplier_id) REFERENCES suppliers (id);
-ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_4 FOREIGN KEY (from_supplier_id) REFERENCES suppliers (id);
+ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_1 FOREIGN KEY (to_location_id) REFERENCES locations (id);
+ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_2 FOREIGN KEY (from_location_id) REFERENCES locations (id);
+ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_3 FOREIGN KEY (from_supplier_id) REFERENCES suppliers (id);
+ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_4 FOREIGN KEY (to_supplier_id) REFERENCES suppliers (id);
 ALTER TABLE supply_flows ADD CONSTRAINT fk_supply_flows_5 FOREIGN KEY (network_version_id) REFERENCES network_versions (id);
 ALTER TABLE system_config ADD CONSTRAINT fk_system_config_1 FOREIGN KEY (updated_by_user_id) REFERENCES users (id);
 ALTER TABLE transit_time_lanes ADD CONSTRAINT fk_transit_time_lanes_1 FOREIGN KEY (from_location_id) REFERENCES locations (id);
 ALTER TABLE transit_time_lanes ADD CONSTRAINT fk_transit_time_lanes_2 FOREIGN KEY (to_location_id) REFERENCES locations (id);
-ALTER TABLE user_locations ADD CONSTRAINT fk_user_locations_1 FOREIGN KEY (user_id) REFERENCES users (id);
-ALTER TABLE user_locations ADD CONSTRAINT fk_user_locations_2 FOREIGN KEY (location_id) REFERENCES locations (id);
-ALTER TABLE user_regions ADD CONSTRAINT fk_user_regions_1 FOREIGN KEY (region_id) REFERENCES regions (id);
-ALTER TABLE user_regions ADD CONSTRAINT fk_user_regions_2 FOREIGN KEY (user_id) REFERENCES users (id);
+ALTER TABLE user_locations ADD CONSTRAINT fk_user_locations_1 FOREIGN KEY (location_id) REFERENCES locations (id);
+ALTER TABLE user_locations ADD CONSTRAINT fk_user_locations_2 FOREIGN KEY (user_id) REFERENCES users (id);
+ALTER TABLE user_regions ADD CONSTRAINT fk_user_regions_1 FOREIGN KEY (user_id) REFERENCES users (id);
+ALTER TABLE user_regions ADD CONSTRAINT fk_user_regions_2 FOREIGN KEY (region_id) REFERENCES regions (id);
 ALTER TABLE user_roles ADD CONSTRAINT fk_user_roles_1 FOREIGN KEY (user_id) REFERENCES users (id);
 ALTER TABLE users ADD CONSTRAINT fk_users_1 FOREIGN KEY (default_location_id) REFERENCES locations (id);
 ALTER TABLE users ADD CONSTRAINT fk_users_2 FOREIGN KEY (supplier_id) REFERENCES suppliers (id);

@@ -20,11 +20,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DB_PATH = REPO_ROOT / "backend" / "terminal_tracking.db"
 OUT_PATH = REPO_ROOT / "seed.sql"
 
-# agent_logs / alerts / state_history: excluded historically because an
-# Anthropic API key ended up in an agent_logs export once and tripped
-# GitHub's push protection — simplest to just never export high-volume
-# internal log tables at all.
-SKIP = {"sqlite_sequence", "agent_logs", "alerts", "state_history"}
+# agent_logs: an Anthropic API key ended up in an export of this table once
+# and tripped GitHub's push protection — it's LLM-reasoning free text, so
+# there's no reliable way to guarantee a future run won't do it again; keep
+# excluding it. alerts and state_history were bundled into that same
+# exclusion defensively but are plain structured business data (checked
+# 2026-09-01: no secrets, just activity notes / alert messages) and are core
+# functionality — Terminal Detail's state history and the Alerts page were
+# silently empty on every deploy because of this. Export them.
+SKIP = {"sqlite_sequence", "agent_logs"}
 
 
 def main():

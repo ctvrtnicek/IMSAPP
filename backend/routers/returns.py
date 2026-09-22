@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from scoping import Scope, get_scope
 from database import get_db
 from state_activity_map import get_activity_description
 from models import (
@@ -168,6 +169,7 @@ def list_return_orders(
     customer_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List all return orders. All authenticated users can view."""
     q = db.query(ReturnOrder)
@@ -175,6 +177,7 @@ def list_return_orders(
         q = q.filter(ReturnOrder.status == status_filter)
     if customer_id:
         q = q.filter(ReturnOrder.customer_id == customer_id)
+    q = scope.apply(q, scope.return_filter)
     orders = q.order_by(ReturnOrder.id.desc()).all()
     return [return_to_out(o) for o in orders]
 
@@ -188,6 +191,7 @@ def create_return_order(
     payload: ReturnOrderCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Create a new return order (supply_planner, warehouse_user, admin)."""
     if current_user.role not in ("admin", "supply_planner", "warehouse_user"):
@@ -261,8 +265,9 @@ def get_return_order_by_number(
     order_number: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    ro = db.query(ReturnOrder).filter(ReturnOrder.order_number == order_number).first()
+    ro = scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.order_number == order_number).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return order not found")
     return {"id": ro.id}
@@ -277,9 +282,10 @@ def get_return_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Get a single return order with serials."""
-    ro = db.query(ReturnOrder).filter(ReturnOrder.id == order_id).first()
+    ro = scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.id == order_id).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return order not found")
     return return_to_out(ro)
@@ -295,12 +301,13 @@ def update_return_order(
     payload: ReturnOrderUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Update status / inspection_outcome (supply_planner, warehouse_user, admin)."""
     if current_user.role not in ("admin", "supply_planner", "warehouse_user"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    ro = db.query(ReturnOrder).filter(ReturnOrder.id == order_id).first()
+    ro = scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.id == order_id).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return order not found")
 
@@ -350,12 +357,13 @@ def receive_return_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Mark return order as received (warehouse_user, admin)."""
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    ro = db.query(ReturnOrder).filter(ReturnOrder.id == order_id).first()
+    ro = scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.id == order_id).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Return order not found")
 
@@ -402,13 +410,14 @@ def list_repair_orders(
     status_filter: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List all repair orders."""
     allowed_roles = ("admin", "supply_planner", "warehouse_user", "repair_centre")
     if current_user.role not in allowed_roles:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    q = db.query(RepairOrder)
+    q = scope.apply(db.query(RepairOrder), scope.repair_order_filter)
     if status_filter:
         q = q.filter(RepairOrder.status == status_filter)
     orders = q.order_by(RepairOrder.id.desc()).all()
@@ -424,6 +433,7 @@ def create_repair_order(
     payload: RepairOrderCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Create a new repair order (supply_planner, admin)."""
     if current_user.role not in ("admin", "supply_planner"):
@@ -493,8 +503,9 @@ def get_repair_order_by_number(
     order_number: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    ro = db.query(RepairOrder).filter(RepairOrder.order_number == order_number).first()
+    ro = scope.apply(db.query(RepairOrder), scope.repair_order_filter).filter(RepairOrder.order_number == order_number).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repair order not found")
     return {"id": ro.id}
@@ -509,9 +520,10 @@ def get_repair_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Get a single repair order with serials."""
-    ro = db.query(RepairOrder).filter(RepairOrder.id == order_id).first()
+    ro = scope.apply(db.query(RepairOrder), scope.repair_order_filter).filter(RepairOrder.id == order_id).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repair order not found")
     return repair_to_out(ro)
@@ -527,12 +539,13 @@ def update_repair_order(
     payload: RepairOrderUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Update repair order (repair_centre, supply_planner, admin)."""
     if current_user.role not in ("admin", "supply_planner", "repair_centre"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    ro = db.query(RepairOrder).filter(RepairOrder.id == order_id).first()
+    ro = scope.apply(db.query(RepairOrder), scope.repair_order_filter).filter(RepairOrder.id == order_id).first()
     if not ro:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Repair order not found")
 
@@ -617,12 +630,22 @@ REPAIR_DOC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "repai
 os.makedirs(REPAIR_DOC_DIR, exist_ok=True)
 ALLOWED_DOC_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.bmp'}
 
+def _ensure_repair_visible(db: Session, scope: Scope, rr_id: int):
+    """rr_id may refer to a RepairReworkOrder or a legacy RepairOrder — 404 unless one is visible."""
+    from models import RepairReworkOrder
+    rr = scope.apply(db.query(RepairReworkOrder.id), scope.rr_filter).filter(RepairReworkOrder.id == rr_id).first()
+    legacy = scope.apply(db.query(RepairOrder.id), scope.repair_order_filter).filter(RepairOrder.id == rr_id).first()
+    if not rr and not legacy:
+        raise HTTPException(404, "Repair order not found")
+
+
 @router.post("/repair/{rr_id}/documents")
 async def upload_repair_document(
     rr_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Upload a document against a Repair & Rework order."""
     ALLOWED_ROLES = {"admin", "supply_planner", "warehouse_user", "repair_centre", "rma_manager"}
@@ -637,11 +660,7 @@ async def upload_repair_document(
         raise HTTPException(400, f"File type {ext} not allowed. Accepted: {', '.join(sorted(ALLOWED_DOC_EXTENSIONS))}")
 
     # Support both RepairReworkOrder (Phase 3E RMA flow) and legacy RepairOrder
-    rr = db.query(RepairReworkOrder).filter(RepairReworkOrder.id == rr_id).first()
-    if not rr:
-        legacy = db.query(RepairOrder).filter(RepairOrder.id == rr_id).first()
-        if not legacy:
-            raise HTTPException(404, "Repair order not found")
+    _ensure_repair_visible(db, scope, rr_id)
 
     contents = await file.read()
     if len(contents) > 2 * 1024 * 1024:
@@ -677,9 +696,11 @@ def list_repair_documents(
     rr_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List documents uploaded to a repair order (RepairReworkOrder or legacy RepairOrder)."""
     from models import RepairDocument
+    _ensure_repair_visible(db, scope, rr_id)
     docs = db.query(RepairDocument).filter(RepairDocument.rr_order_id == rr_id).order_by(RepairDocument.uploaded_at.desc()).all()
     return [{
         "id": d.id,

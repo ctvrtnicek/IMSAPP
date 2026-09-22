@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
+from scoping import Scope, get_scope
 from models import (
     SerialNumber, StateHistory, TerminalState, Location, User,
     PurchaseOrder, OutboundOrder, DistributionOrder, ReturnOrder,
@@ -21,9 +22,10 @@ def get_traceability(
     serial_number: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Full traceability view for a serial number."""
-    s = db.query(SerialNumber).filter(SerialNumber.serial_number == serial_number, SerialNumber.active == 1).first()
+    s = scope.apply(db.query(SerialNumber), scope.serial_filter).filter(SerialNumber.serial_number == serial_number, SerialNumber.active == 1).first()
     if not s:
         raise HTTPException(404, "Serial number not found")
 
@@ -114,6 +116,7 @@ def initiate_rma(
     payload: RMAInitiateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Initiate RMA: creates Return Order (Open) + paired Repair & Rework Order (Draft) with shared RMA reference."""
     roles = getattr(current_user, "roles_list", [current_user.role])

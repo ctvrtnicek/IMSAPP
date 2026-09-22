@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from scoping import Scope, get_scope
 from database import get_db
 from state_activity_map import get_activity_description
 from models import (
@@ -170,8 +171,11 @@ def get_available_serials(
     location_id: int = Query(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Return AVAILABLE serials for a given product at a given location."""
+    if not scope.allows_location(location_id):
+        return []
     available_states = (
         db.query(TerminalState)
         .filter(TerminalState.code.in_(["AVAILABLE", "AVAILABLE_REFURBISHED"]))
@@ -213,6 +217,7 @@ def list_outbound_orders(
     customer_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List all outbound orders (header only, no lines)."""
     if current_user.role not in ("admin", "supply_planner", "warehouse_user"):
@@ -225,6 +230,7 @@ def list_outbound_orders(
         q = q.filter(OutboundOrder.status == status_filter)
     if customer_id:
         q = q.filter(OutboundOrder.customer_id == customer_id)
+    q = scope.apply(q, scope.outbound_filter)
 
     orders = q.order_by(OutboundOrder.id.desc()).all()
     return [order_to_out(o, include_lines=False) for o in orders]
@@ -239,6 +245,7 @@ def create_outbound_order(
     payload: OutboundOrderCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Create a new outbound order (supply_planner or admin only)."""
     if current_user.role not in ("admin", "supply_planner"):
@@ -310,9 +317,10 @@ def get_outbound_order_by_number(
     order_number: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Get a single outbound order by order number."""
-    order = db.query(OutboundOrder).filter(OutboundOrder.order_number == order_number).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.order_number == order_number).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
     return order_to_out(order, include_lines=True)
@@ -327,9 +335,10 @@ def get_outbound_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Get a single outbound order with full lines and allocated serials."""
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
     return order_to_out(order, include_lines=True)
@@ -345,12 +354,13 @@ def update_outbound_order(
     payload: OutboundOrderUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Update outbound order fields (supply_planner or admin only)."""
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="supply_planner or admin only")
 
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
 
@@ -391,12 +401,13 @@ def issue_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Transition order from Draft to Issued (supply_planner or admin only)."""
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="supply_planner or admin only")
 
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
 
@@ -422,12 +433,13 @@ def allocate_order(
     payload: AllocatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Allocate serials to an outbound order. Issued/Allocated → Allocated."""
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="supply_planner or admin only")
 
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
 
@@ -562,12 +574,13 @@ def ship_order(
     payload: ShipPayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Transition order from Allocated to Shipped. Transition serials to TRANSIT state."""
     if current_user.role not in ("admin", "supply_planner", "warehouse_user"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
 
@@ -701,12 +714,13 @@ def deliver_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Transition order from Shipped to Delivered. Transition serials to RECEIVED."""
     if current_user.role not in ("admin", "supply_planner", "warehouse_user"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
 
@@ -763,12 +777,13 @@ def cancel_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Cancel an outbound order (only if Draft, Issued, or Allocated)."""
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="supply_planner or admin only")
 
-    order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
+    order = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Outbound order not found")
 

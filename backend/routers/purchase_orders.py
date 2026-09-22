@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from scoping import Scope, get_scope
 from database import get_db
 from routers.cost_engine import apply_cost
 from state_activity_map import get_activity_description
@@ -122,19 +123,14 @@ def list_pos(
     status_filter: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    """List all purchase orders. Optional ?status= filter. Returns headers only (no lines)."""
+    """List purchase orders visible to the caller (see scoping.py). Optional ?status= filter."""
     q = db.query(PurchaseOrder)
     if status_filter:
         q = q.filter(PurchaseOrder.status == status_filter)
 
-    roles = getattr(current_user, "roles_list", [current_user.role])
-    if "supplier" in roles and "admin" not in roles:
-        if current_user.supplier_id:
-            q = q.filter(PurchaseOrder.supplier_id == current_user.supplier_id)
-        else:
-            # Fallback: no supplier assigned — return empty
-            q = q.filter(PurchaseOrder.id == -1)
+    q = scope.apply(q, scope.po_filter)
 
     pos = q.order_by(PurchaseOrder.id.desc()).all()
     return [po_to_out(po, include_lines=False) for po in pos]
@@ -149,6 +145,7 @@ def create_po(
     payload: POCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Create a new Purchase Order (supply_planner or admin only)."""
     if current_user.role not in ("admin", "supply_planner"):
@@ -199,9 +196,10 @@ def get_po_by_number(
     po_number: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Get a single PO by PO number (for order reference links)."""
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.po_number == po_number).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.po_number == po_number).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
     return po_to_out(po, include_lines=True)
@@ -212,9 +210,10 @@ def get_po(
     po_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Get a single PO with full lines."""
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
     return po_to_out(po, include_lines=True)
@@ -230,12 +229,13 @@ def update_po(
     payload: POUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Update PO fields (supply_planner or admin only)."""
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="supply_planner or admin only")
 
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -260,12 +260,13 @@ def issue_po(
     po_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Change PO status from Draft to Issued (supply_planner or admin only)."""
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="supply_planner or admin only")
 
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -291,9 +292,10 @@ def import_serials(
     payload: SerialImportPayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Import serial numbers against a PO. Creates SerialNumber + StateHistory records."""
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -417,9 +419,10 @@ def receive_all(
     po_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Confirm receipt of all EXPECTING serials on this PO (EXPECTING -> QUARANTINE)."""
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -533,6 +536,7 @@ def receive_dialog(
     payload: ReceiveDialogPayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Receive serials with per-serial state selection (QUARANTINE or QUALITY_HOLD)."""
     ALLOWED_RECEIVE_STATES = {"QUARANTINE", "QUALITY_HOLD"}
@@ -546,7 +550,7 @@ def receive_dialog(
         if item.state_code not in ALLOWED_RECEIVE_STATES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid state_code '{item.state_code}'. Must be QUARANTINE or QUALITY_HOLD")
 
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PO not found")
 
@@ -637,12 +641,13 @@ def reverse_receive(
     po_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Reverse receipt of all QUARANTINE serials on this PO (QUARANTINE -> EXPECTING). Admin only."""
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only")
 
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -740,9 +745,10 @@ def receive_serial(
     serial_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Receive a single serial number (EXPECTING -> QUARANTINE)."""
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -828,9 +834,10 @@ def get_po_serials(
     po_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Return all serial numbers linked to this PO."""
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Purchase order not found")
 
@@ -887,6 +894,7 @@ async def upload_document_for_extraction(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Upload a document for OCR/AI extraction of serial numbers."""
     ALLOWED_ROLES = {"admin", "supply_planner", "warehouse_user", "supplier", "inbound_specialist"}
@@ -904,7 +912,7 @@ async def upload_document_for_extraction(
 
     from document_processor import process_document
 
-    po = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).first()
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
     if not po:
         raise HTTPException(404, "PO not found")
 

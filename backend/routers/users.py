@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, get_password_hash, ALL_ROLES
@@ -159,6 +160,18 @@ def list_users(
     return [user_to_out(u, db) for u in users]
 
 
+def _ensure_email_free(email: Optional[str], db: Session, exclude_user_id: Optional[int] = None):
+    """users.email is UNIQUE — reject duplicates with a readable 409 instead of a DB 500."""
+    if not email:
+        return
+    q = db.query(User).filter(func.lower(User.email) == email.lower())
+    if exclude_user_id is not None:
+        q = q.filter(User.id != exclude_user_id)
+    other = q.first()
+    if other:
+        raise HTTPException(status_code=409, detail=f"Email already used by user '{other.username}'")
+
+
 @router.post("", response_model=dict, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
@@ -174,6 +187,7 @@ def create_user(
     existing = db.query(User).filter(User.username == payload.username).first()
     if existing:
         raise HTTPException(status_code=409, detail="Username already exists")
+    _ensure_email_free(payload.email, db)
 
     new_user = User(
         username=payload.username,
@@ -239,6 +253,9 @@ def update_user(
 
     if "role" in update_data and update_data["role"] not in ALL_ROLES:
         raise HTTPException(status_code=422, detail=f"Invalid role")
+
+    if "email" in update_data:
+        _ensure_email_free(update_data["email"], db, exclude_user_id=user_id)
 
     # Update scalar fields
     for field in ("email", "role", "default_location_id", "active", "supplier_id"):

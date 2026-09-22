@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAlertSummary } from '../api/alerts.js'
 import { getAgentStatus } from '../api/agents.js'
+import { LocationProvider, useLocationFilter } from '../context/LocationContext.jsx'
 import LocationsPage from './master-data/LocationsPage.jsx'
 import SuppliersPage from './master-data/SuppliersPage.jsx'
 import ProductsPage from './master-data/ProductsPage.jsx'
@@ -69,7 +70,7 @@ function isNavVisible(navId, roles) {
                               'rma_manager','senior_management')
     case 'dist-orders':     return hasAnyRole(roles,'admin','supply_planner','demand_planner',
                               'warehouse_user','inbound_specialist','outbound_specialist')
-    case 'repair-rework':   return !isSupplier
+    case 'repair-rework':   return roles.some(r => r !== 'supplier')  // hidden only for supplier-only users
     case 'demand':          return hasAnyRole(roles,'admin','supply_planner','demand_planner',
                               'outbound_specialist','senior_management')
     case 'supply':          return hasAnyRole(roles,'admin','supply_planner','demand_planner',
@@ -78,6 +79,7 @@ function isNavVisible(navId, roles) {
                               'warehouse_user','senior_management')
     case 'warehouse-tasks': return isWarehouse
     case 'alerts':          return true
+    case 'supplier-portal': return isSupplier
     case 'admin':           return isAdmin
     default:                return isAdmin
   }
@@ -98,6 +100,7 @@ const NAV_ITEMS = [
   { id: 'analytics',       label: 'Analytics',          icon: '⌁' },
   { id: 'warehouse-tasks', label: 'Warehouse Tasks',    icon: '⬡' },
   { id: 'alerts',          label: 'Alerts',             icon: '🔔' },
+  { id: 'supplier-portal', label: 'Supplier Portal',    icon: '⇲' },
   { id: 'admin',           label: 'Admin',              icon: '⚙' },
 ]
 
@@ -331,7 +334,7 @@ function Sidebar({ activeNav, onNavChange, roles, alertSummary, searchQuery, onS
 // Main DashboardPage
 // ---------------------------------------------------------------------------
 
-export default function DashboardPage({ auth, setAuth }) {
+function DashboardPageInner({ auth, setAuth }) {
   const navigate = useNavigate()
   const [activeNav, setActiveNav]         = useState(() => sessionStorage.getItem('dash_nav') || 'dashboard')
   const [activeAdminTab, setActiveAdminTab] = useState(() => sessionStorage.getItem('dash_admin_tab') || 'locations')
@@ -351,6 +354,9 @@ export default function DashboardPage({ auth, setAuth }) {
   const rolesRaw  = auth?.roles    || (() => { try { return JSON.parse(localStorage.getItem('roles') || '[]') } catch { return [] } })()
   const roles     = rolesRaw.length > 0 ? rolesRaw : [role]
   const roleLabel = roles.map(r => ROLE_LABELS[r] || r).join(', ')
+
+  // Location scoping — for warehouse_user this provides location_ids filter for all data fetches
+  const locationFilter = useLocationFilter()
 
   useEffect(() => {
     function fetchSummary() {
@@ -381,6 +387,10 @@ export default function DashboardPage({ auth, setAuth }) {
   }
 
   function handleNavChange(id) {
+    if (id === 'supplier-portal') {   // separate full-page portal, not a dashboard section
+      navigate('/supplier-portal')
+      return
+    }
     setActiveNav(id)
     sessionStorage.setItem('dash_nav', id)
     if (id !== 'repair-rework') {
@@ -509,6 +519,7 @@ export default function DashboardPage({ auth, setAuth }) {
             {activeReturnsTab === 'return-orders' && (
               <ReturnOrdersPage
                 role={role}
+               
                 onView={(id) => setActiveReturnDetail(id)}
                 onCreateRepair={(repairId) => {
                   setActiveReturnsTab('repair-orders')
@@ -558,7 +569,7 @@ export default function DashboardPage({ auth, setAuth }) {
           </div>
           <div className="flex-1">
             {activeWarehouseTab === 'state-update' && <StateUpdatePage role={role} />}
-            {activeWarehouseTab === 'work-orders'  && <WorkOrdersPage role={role} />}
+            {activeWarehouseTab === 'work-orders'  && <WorkOrdersPage  role={role} />}
           </div>
         </div>
       )
@@ -589,7 +600,7 @@ export default function DashboardPage({ auth, setAuth }) {
     if (activeNav === 'alerts') {
       return (
         <div className="flex flex-col h-full">
-          <AlertsPage onNavigate={handleNavigate} />
+          <AlertsPage onNavigate={handleNavigate} locationFilter={locationFilter} />
         </div>
       )
     }
@@ -689,9 +700,37 @@ export default function DashboardPage({ auth, setAuth }) {
 
         {/* Main Content */}
         <main style={{ flex: 1, overflow: 'auto', padding: 32 }}>
+          {/* Location scope banner — shown for location-scoped users (see LocationContext / backend scoping.py) */}
+          {locationFilter.isFiltered && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: '#E8F4F6', border: '1px solid #1A6B7B', borderRadius: 8,
+              padding: '7px 14px', marginBottom: 18, fontSize: 12, color: '#1A6B7B',
+            }}>
+              <span style={{ fontSize: 14 }}>📍</span>
+              {locationFilter.locations.length > 0 ? (
+                <span>
+                  <strong>Your location{locationFilter.locations.length > 1 ? 's' : ''}:</strong> {locationFilter.locationCodes}
+                  {' '}— showing stock and orders that are or have been at {locationFilter.locations.length > 1 ? 'these locations' : 'this location'}
+                </span>
+              ) : (
+                <span>
+                  <strong>No location assigned</strong> — ask an admin to assign your location in Admin → Users &amp; Roles
+                </span>
+              )}
+            </div>
+          )}
           {renderContent()}
         </main>
       </div>
     </div>
+  )
+}
+
+export default function DashboardPage({ auth, setAuth }) {
+  return (
+    <LocationProvider auth={auth}>
+      <DashboardPageInner auth={auth} setAuth={setAuth} />
+    </LocationProvider>
   )
 }

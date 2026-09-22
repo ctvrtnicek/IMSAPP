@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from scoping import Scope, get_scope
 from database import get_db
 from models import (
     Location,
@@ -114,8 +115,9 @@ def list_work_orders(
     outbound_order_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    q = db.query(WorkOrder)
+    q = scope.apply(db.query(WorkOrder), scope.work_order_filter)
     if status_filter:
         q = q.filter(WorkOrder.status == status_filter)
     if location_id:
@@ -135,8 +137,9 @@ def get_work_order(
     wo_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     return _wo_to_out(wo, include_lines=True)
@@ -151,8 +154,9 @@ def get_work_order_by_number(
     order_number: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    wo = db.query(WorkOrder).filter(WorkOrder.order_number == order_number).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.order_number == order_number).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     return {"id": wo.id}
@@ -167,10 +171,11 @@ def acknowledge_work_order(
     wo_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=403, detail="warehouse_user or admin only")
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.status != "Open":
@@ -190,10 +195,11 @@ def start_work_order(
     wo_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=403, detail="warehouse_user or admin only")
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.status != "Acknowledged":
@@ -214,6 +220,7 @@ def complete_work_order(
     payload: CompletePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """
     Confirm picks and close the work order.
@@ -227,7 +234,7 @@ def complete_work_order(
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=403, detail="warehouse_user or admin only")
 
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.status not in ("Open", "Acknowledged", "In Progress"):
@@ -335,10 +342,11 @@ def cancel_work_order(
     wo_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     if current_user.role not in ("admin", "supply_planner"):
         raise HTTPException(status_code=403, detail="supply_planner or admin only")
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.status in ("Complete", "Cancelled"):
@@ -358,6 +366,7 @@ def reverse_work_order(
     wo_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """
     Reverse a Completed WO back to In Progress.
@@ -368,7 +377,7 @@ def reverse_work_order(
     """
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=403, detail="warehouse_user or admin only")
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.status != "Complete":
@@ -439,8 +448,11 @@ def serials_at_location(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Return active serials at a given location for WO serial picker."""
+    if not scope.allows_location(location_id):
+        return []
     q = db.query(SerialNumber).filter(
         SerialNumber.current_location_id == location_id,
         SerialNumber.active == 1,
@@ -474,6 +486,7 @@ def create_recharge_work_order(
     payload: RechargeWOCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """
     Create a Recharge Work Order for all terminals at a location needing recharge.
@@ -485,6 +498,8 @@ def create_recharge_work_order(
 
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=403, detail="warehouse_user or admin only")
+    if not scope.allows_location(payload.location_id):
+        raise HTTPException(status_code=403, detail="Location not assigned to you")
 
     recharged_state = db.query(TerminalState).filter(TerminalState.code == "RECHARGED").first()
     quarantine_state = db.query(TerminalState).filter(TerminalState.code == "QUARANTINE").first()
@@ -570,6 +585,7 @@ def complete_recharge_work_order(
     payload: RechargeCompletePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Complete a Recharge WO — transitions listed serials to RECHARGED state."""
     from models import TerminalState, StateHistory
@@ -578,7 +594,7 @@ def complete_recharge_work_order(
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=403, detail="warehouse_user or admin only")
 
-    wo = db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.wo_type != "Recharge":

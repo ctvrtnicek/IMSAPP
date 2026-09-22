@@ -2,10 +2,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, true
 
 from auth import get_current_user
 from database import get_db
+from scoping import Scope, get_scope
 from models import (
     SerialNumber, TerminalState, Location, PurchaseOrder,
     OutboundOrder, ReturnOrder, RepairOrder, User,
@@ -13,6 +14,18 @@ from models import (
 )
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+
+
+# Analytics for location-scoped users covers only their own locations — stock
+# currently there, orders that involve them (confirmed 2026-09-22). This is
+# deliberately narrower than the history-based visibility rule in scoping.py.
+
+def _at(scope: Scope):
+    return true() if scope.unrestricted else SerialNumber.current_location_id.in_(scope.location_ids)
+
+
+def _f(scope: Scope, clause_fn):
+    return true() if scope.unrestricted else clause_fn()
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +36,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 def get_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Top-level KPI cards."""
 
@@ -30,11 +44,11 @@ def get_summary(
         return (
             db.query(func.count(SerialNumber.id))
             .join(TerminalState, SerialNumber.current_state_id == TerminalState.id)
-            .filter(TerminalState.code == code, SerialNumber.active == 1)
+            .filter(TerminalState.code == code, SerialNumber.active == 1, _at(scope))
             .scalar() or 0
         )
 
-    total = db.query(func.count(SerialNumber.id)).filter(SerialNumber.active == 1).scalar() or 0
+    total = db.query(func.count(SerialNumber.id)).filter(SerialNumber.active == 1, _at(scope)).scalar() or 0
     available = state_count("AVAILABLE")
     available_refurb = state_count("AVAILABLE_REFURBISHED")
     quarantine = state_count("QUARANTINE")
@@ -46,6 +60,7 @@ def get_summary(
         .filter(
             TerminalState.code.in_(["TRANSIT_TO_COMPANY", "TRANSIT_TO_WAREHOUSE", "TRANSIT_TO_REPAIR"]),
             SerialNumber.active == 1,
+            _at(scope),
         )
         .scalar() or 0
     )
@@ -53,26 +68,26 @@ def get_summary(
     open_po_statuses = ["Draft", "Issued", "Partially Received"]
     open_pos = (
         db.query(func.count(PurchaseOrder.id))
-        .filter(PurchaseOrder.status.in_(open_po_statuses))
+        .filter(PurchaseOrder.status.in_(open_po_statuses), _f(scope, scope.po_filter))
         .scalar() or 0
     )
 
     open_ob_statuses = ["Draft", "Issued", "Allocated", "Shipped"]
     open_outbound = (
         db.query(func.count(OutboundOrder.id))
-        .filter(OutboundOrder.status.in_(open_ob_statuses))
+        .filter(OutboundOrder.status.in_(open_ob_statuses), _f(scope, scope.outbound_filter))
         .scalar() or 0
     )
 
     pending_returns = (
         db.query(func.count(ReturnOrder.id))
-        .filter(ReturnOrder.status.in_(["Initiated", "Received"]))
+        .filter(ReturnOrder.status.in_(["Initiated", "Received"]), _f(scope, scope.return_filter))
         .scalar() or 0
     )
 
     active_repairs = (
         db.query(func.count(RepairOrder.id))
-        .filter(RepairOrder.status.in_(["Dispatched", "Received"]))
+        .filter(RepairOrder.status.in_(["Dispatched", "Received"]), _f(scope, scope.repair_order_filter))
         .scalar() or 0
     )
 
@@ -99,11 +114,12 @@ def get_summary(
 def inventory_by_state(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     rows = (
         db.query(TerminalState.display_name, TerminalState.warehouse_type, func.count(SerialNumber.id))
         .join(SerialNumber, SerialNumber.current_state_id == TerminalState.id)
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _at(scope))
         .group_by(TerminalState.display_name, TerminalState.warehouse_type)
         .order_by(func.count(SerialNumber.id).desc())
         .all()
@@ -119,11 +135,12 @@ def inventory_by_state(
 def inventory_by_location(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     rows = (
         db.query(Location.code, Location.name, func.count(SerialNumber.id))
         .join(SerialNumber, SerialNumber.current_location_id == Location.id)
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _at(scope))
         .group_by(Location.code, Location.name)
         .order_by(func.count(SerialNumber.id).desc())
         .all()
@@ -139,9 +156,11 @@ def inventory_by_location(
 def outbound_by_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     rows = (
         db.query(OutboundOrder.status, func.count(OutboundOrder.id))
+        .filter(_f(scope, scope.outbound_filter))
         .group_by(OutboundOrder.status)
         .all()
     )
@@ -156,9 +175,11 @@ def outbound_by_status(
 def po_by_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     rows = (
         db.query(PurchaseOrder.status, func.count(PurchaseOrder.id))
+        .filter(_f(scope, scope.po_filter))
         .group_by(PurchaseOrder.status)
         .all()
     )
@@ -173,10 +194,11 @@ def po_by_status(
 def stock_type_split(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     rows = (
         db.query(SerialNumber.stock_type, func.count(SerialNumber.id))
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _at(scope))
         .group_by(SerialNumber.stock_type)
         .all()
     )
@@ -196,6 +218,7 @@ def cost_by_serial(
     cost_max: Optional[float] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Accumulated cost per active serial number with optional filters."""
     q = (
@@ -213,7 +236,7 @@ def cost_by_serial(
         .outerjoin(Product, SerialNumber.product_id == Product.id)
         .outerjoin(TerminalState, SerialNumber.current_state_id == TerminalState.id)
         .outerjoin(Location, SerialNumber.current_location_id == Location.id)
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _at(scope))
     )
     if search:
         q = q.filter(SerialNumber.serial_number.ilike(f"%{search}%"))
@@ -255,6 +278,7 @@ def cost_by_location(
     state_code: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Total activity cost aggregated per location from state history."""
     q = (
@@ -268,6 +292,7 @@ def cost_by_location(
         .join(Location, StateHistory.location_id == Location.id)
         .outerjoin(TerminalState, StateHistory.state_id == TerminalState.id)
         .filter(StateHistory.reporting_currency_equiv.isnot(None))
+        .filter(true() if scope.unrestricted else StateHistory.location_id.in_(scope.location_ids))
     )
     if date_from:
         q = q.filter(StateHistory.datetime_utc >= date_from)
@@ -303,6 +328,7 @@ def cost_by_product(
     location_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Total cost and serial count aggregated per product."""
     q = (
@@ -313,7 +339,7 @@ def cost_by_product(
             func.coalesce(func.sum(SerialNumber.accumulated_cost), 0).label("total_cost"),
         )
         .join(SerialNumber, SerialNumber.product_id == Product.id)
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _at(scope))
     )
     if product_code:
         q = q.filter(Product.code == product_code)
@@ -359,6 +385,7 @@ def repair_cost_analysis(
     product_code: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Actual repair costs per repair centre and product."""
     from models import RepairOrderSerial
@@ -376,7 +403,7 @@ def repair_cost_analysis(
         .join(RepairOrderSerial, RepairOrderSerial.repair_order_id == RepairOrder.id)
         .join(SerialNumber, RepairOrderSerial.serial_id == SerialNumber.id)
         .join(Product, SerialNumber.product_id == Product.id)
-        .filter(RepairOrder.actual_cost.isnot(None))
+        .filter(RepairOrder.actual_cost.isnot(None), _f(scope, scope.repair_order_filter))
     )
     if date_from:
         q = q.filter(RepairOrder.created_at >= date_from)
@@ -456,6 +483,7 @@ def _coords(country: str, city: str = None):
 def dashboard_map(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """
     Returns warehouse/supplier pins with terminal counts for the dashboard map.
@@ -471,7 +499,10 @@ def dashboard_map(
     pins = []
 
     # --- Locations (warehouses / company sites) ---
-    locations = db.query(Location).filter(Location.active == 1).all()
+    locations = db.query(Location).filter(Location.active == 1)
+    if not scope.unrestricted:
+        locations = locations.filter(Location.id.in_(scope.location_ids))
+    locations = locations.all()
     for loc in locations:
         coords = _coords(loc.country, loc.city)
         if not coords:
@@ -521,7 +552,7 @@ def dashboard_map(
         # Terminals sourced from this supplier (original supplier on serial)
         total = (
             db.query(sqlfunc.count(SerialNumber.id))
-            .filter(SerialNumber.supplier_id == sup.id, SerialNumber.active == 1)
+            .filter(SerialNumber.supplier_id == sup.id, SerialNumber.active == 1, _at(scope))
             .scalar() or 0
         )
         if total == 0:

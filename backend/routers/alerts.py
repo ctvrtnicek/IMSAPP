@@ -469,6 +469,7 @@ def list_alerts(
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     rule_code: Optional[str] = Query(None),
+    location_ids: Optional[str] = Query(None),   # comma-separated
     limit: int = Query(200),
     db: Session = Depends(get_db),
 ):
@@ -481,6 +482,10 @@ def list_alerts(
         rule = db.query(AlertRule).filter(AlertRule.rule_code == rule_code).first()
         if rule:
             q = q.filter(Alert.rule_id == rule.id)
+    if location_ids:
+        id_list = [int(x) for x in location_ids.split(",") if x.strip().isdigit()]
+        if id_list:
+            q = q.filter(Alert.location_id.in_(id_list))
     alerts = q.order_by(Alert.created_at.desc()).limit(limit).all()
 
     def _out(a: Alert):

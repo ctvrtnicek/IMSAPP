@@ -10,6 +10,7 @@ from datetime import datetime
 from database import get_db
 from models import RepairReworkOrder, RepairReworkSerial, SerialNumber, Location, User, OrderNumbering
 from routers.auth import get_current_user
+from scoping import Scope, get_scope
 
 router = APIRouter(prefix="/api/repair-rework", tags=["Repair & Rework"])
 
@@ -120,8 +121,9 @@ def list_rr_orders(
     status: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    q = db.query(RepairReworkOrder)
+    q = scope.apply(db.query(RepairReworkOrder), scope.rr_filter)
     if dispatch_type:
         q = q.filter(RepairReworkOrder.dispatch_type == dispatch_type)
     if status:
@@ -135,8 +137,9 @@ def get_rr_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    o = db.query(RepairReworkOrder).get(order_id)
+    o = scope.apply(db.query(RepairReworkOrder), scope.rr_filter).filter(RepairReworkOrder.id == order_id).first()
     if not o:
         raise HTTPException(status_code=404, detail="Repair/Rework order not found")
     return _rr_to_out(o, db)
@@ -147,6 +150,7 @@ def create_rr_order(
     payload: RRCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     if current_user.role not in ("admin", "supply_planner", "warehouse_user"):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -180,8 +184,9 @@ def update_rr_order(
     payload: RRUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    o = db.query(RepairReworkOrder).get(order_id)
+    o = scope.apply(db.query(RepairReworkOrder), scope.rr_filter).filter(RepairReworkOrder.id == order_id).first()
     if not o:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -198,9 +203,10 @@ def dispatch_rr_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Mark as Dispatched (outbound shipped)."""
-    o = db.query(RepairReworkOrder).get(order_id)
+    o = scope.apply(db.query(RepairReworkOrder), scope.rr_filter).filter(RepairReworkOrder.id == order_id).first()
     if not o:
         raise HTTPException(status_code=404, detail="Not found")
     o.status = "Dispatched"
@@ -215,9 +221,10 @@ def receive_back_rr_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Mark as Returned (inbound received back)."""
-    o = db.query(RepairReworkOrder).get(order_id)
+    o = scope.apply(db.query(RepairReworkOrder), scope.rr_filter).filter(RepairReworkOrder.id == order_id).first()
     if not o:
         raise HTTPException(status_code=404, detail="Not found")
     o.status = "Returned"

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from scoping import Scope, get_scope
 from database import get_db
 from models import Location, Product, SerialNumber, StateHistory, TerminalState, User
 from routers.cost_engine import apply_cost
@@ -108,9 +109,13 @@ def get_serials_by_state(
     location_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Return active serial numbers filtered by state code and/or location."""
     q = db.query(SerialNumber).filter(SerialNumber.active == 1)
+    # Warehouse tasks act on physical stock — scoped users only get terminals currently at their locations
+    if not scope.unrestricted:
+        q = q.filter(SerialNumber.current_location_id.in_(scope.location_ids))
 
     if state_code:
         q = q.join(
@@ -133,6 +138,7 @@ def bulk_state_update(
     payload: StateUpdatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Move a list of serial numbers to a new state. warehouse_user or admin only."""
     if current_user.role not in ("admin", "warehouse_user"):
@@ -140,6 +146,8 @@ def bulk_state_update(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin or warehouse_user only",
         )
+    if payload.location_id is not None and not scope.allows_location(payload.location_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Target location not assigned to you")
 
     target_state = (
         db.query(TerminalState)
@@ -159,6 +167,9 @@ def bulk_state_update(
         serial = db.query(SerialNumber).filter(SerialNumber.id == serial_id).first()
         if not serial:
             errors.append(f"Serial ID {serial_id} not found")
+            continue
+        if not scope.allows_location(serial.current_location_id):
+            errors.append(f"Serial ID {serial_id}: not at one of your locations")
             continue
 
         try:
@@ -188,6 +199,7 @@ def single_state_update(
     payload: SingleStateUpdatePayload,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Move a single serial number to a new state. warehouse_user or admin only."""
     if current_user.role not in ("admin", "warehouse_user"):
@@ -195,6 +207,8 @@ def single_state_update(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin or warehouse_user only",
         )
+    if payload.location_id is not None and not scope.allows_location(payload.location_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Target location not assigned to you")
 
     serial = db.query(SerialNumber).filter(SerialNumber.id == payload.serial_id).first()
     if not serial:
@@ -202,6 +216,8 @@ def single_state_update(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Serial ID {payload.serial_id} not found",
         )
+    if not scope.allows_location(serial.current_location_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Serial is not at one of your locations")
 
     target_state = (
         db.query(TerminalState)

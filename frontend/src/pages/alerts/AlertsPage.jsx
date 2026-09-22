@@ -21,7 +21,7 @@ const inputStyle = {
   fontSize: '0.85rem', outline: 'none', background: '#fff',
 }
 
-export default function AlertsPage({ onNavigate }) {
+export default function AlertsPage({ onNavigate, locationFilter }) {
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
@@ -38,12 +38,13 @@ export default function AlertsPage({ onNavigate }) {
     if (filterStatus) params.status = filterStatus
     if (filterSeverity) params.severity = filterSeverity
     if (filterRule) params.rule_code = filterRule
+    if (locationFilter?.locationIdsParam) params.location_ids = locationFilter.locationIdsParam
     getAlerts(params)
       .then((r) => { setAlerts(r.data); setLoading(false) })
       .catch(() => { setError('Failed to load alerts.'); setLoading(false) })
   }
 
-  useEffect(() => { load() }, [filterSeverity, filterRule, filterStatus])
+  useEffect(() => { load() }, [filterSeverity, filterRule, filterStatus, locationFilter?.locationIdsParam])
 
   function handleRun() {
     setRunning(true)

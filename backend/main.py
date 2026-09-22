@@ -52,6 +52,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "http://localhost:5174",
         "http://localhost:3000",
         "https://imsapp-dev.netlify.app",
         "https://calm-jelly-3201a8.netlify.app",  # old/reference URL, kept in case it's revived

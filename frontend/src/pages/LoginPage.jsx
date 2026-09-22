@@ -24,7 +24,10 @@ export default function LoginPage({ setAuth }) {
     try {
       const data = await login(username, password)
       setAuth({ token: data.access_token, role: data.role, roles: data.roles || [data.role], username: data.username })
-      const dest = data.role === 'supplier' ? '/supplier-portal' : '/dashboard'
+      // Pure supplier users land on their portal; multi-role users (e.g. repair centre +
+      // supplier) land on the dashboard and reach the portal from the sidebar.
+      const roles = data.roles || [data.role]
+      const dest = roles.length > 0 && roles.every(r => r === 'supplier') ? '/supplier-portal' : '/dashboard'
       navigate(dest, { replace: true })
     } catch {
       setError('Invalid username or password')

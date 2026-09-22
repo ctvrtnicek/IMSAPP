@@ -1,10 +1,12 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
+from scoping import Scope, get_scope
 from models import (
     Customer, DistributionOrder, Firmware, OutboundOrder, Product,
     PurchaseOrder, RepairReworkOrder, ReturnOrder, SerialNumber, Supplier, User,
@@ -35,8 +37,9 @@ def global_search(
     q: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    """Search all IMS objects. Returns exact and partial match sections."""
+    """Search all IMS objects the caller can see (scoping.py). Returns exact and partial match sections."""
     term = q.strip()
     if not term:
         return {"exact": [], "partial": []}
@@ -58,13 +61,13 @@ def global_search(
     like = f"%{term}%"
 
     # ── Serial Numbers ──────────────────────────────────────────────────────
-    serials = db.query(SerialNumber).filter(SerialNumber.serial_number.ilike(like)).limit(50).all()
+    serials = scope.apply(db.query(SerialNumber), scope.serial_filter).filter(SerialNumber.serial_number.ilike(like)).limit(50).all()
     for s in serials:
         r = _hit("Terminal", s.serial_number, f"Product: {s.product.code if s.product else '—'} | State: {s.current_state.code if s.current_state else '—'}", f"/terminal/{s.id}")
         add(r, _exact(s.serial_number, term))
 
     # ── Purchase Orders ─────────────────────────────────────────────────────
-    pos = db.query(PurchaseOrder).filter(
+    pos = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(
         PurchaseOrder.po_number.ilike(like) | PurchaseOrder.external_reference.ilike(like)
     ).limit(30).all()
     for p in pos:
@@ -72,7 +75,7 @@ def global_search(
         add(r, _exact(p.po_number, term) or _exact(p.external_reference, term))
 
     # ── Outbound Orders (SO / RN / RP) ──────────────────────────────────────
-    outbound = db.query(OutboundOrder).filter(
+    outbound = scope.apply(db.query(OutboundOrder), scope.outbound_filter).filter(
         OutboundOrder.order_type.in_(["Sales", "Rental", "Replacement"]),
         OutboundOrder.order_number.ilike(like),
     ).limit(30).all()
@@ -82,19 +85,22 @@ def global_search(
         add(r, _exact(o.order_number, term))
 
     # ── Distribution Orders ─────────────────────────────────────────────────
-    dist = db.query(DistributionOrder).filter(DistributionOrder.order_number.ilike(like)).limit(20).all()
+    dist = scope.apply(db.query(DistributionOrder), lambda: or_(
+        DistributionOrder.origin_location_id.in_(scope.location_ids),
+        DistributionOrder.destination_location_id.in_(scope.location_ids),
+    )).filter(DistributionOrder.order_number.ilike(like)).limit(20).all()
     for d in dist:
         r = _hit("Distribution Order", d.order_number, f"Status: {d.status}", f"/order/{d.order_number}")
         add(r, _exact(d.order_number, term))
 
     # ── Repair & Rework Orders ──────────────────────────────────────────────
-    rr = db.query(RepairReworkOrder).filter(RepairReworkOrder.order_number.ilike(like)).limit(20).all()
+    rr = scope.apply(db.query(RepairReworkOrder), scope.rr_filter).filter(RepairReworkOrder.order_number.ilike(like)).limit(20).all()
     for r_ in rr:
         r = _hit("Repair & Rework Order", r_.order_number, f"Status: {r_.status} | Type: {r_.dispatch_type}", f"/repair/{r_.order_number}")
         add(r, _exact(r_.order_number, term))
 
     # ── Return Orders ───────────────────────────────────────────────────────
-    ret = db.query(ReturnOrder).filter(ReturnOrder.order_number.ilike(like)).limit(20).all()
+    ret = scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.order_number.ilike(like)).limit(20).all()
     for r_ in ret:
         r = _hit("Return Order", r_.order_number, f"Reason: {r_.reason} | Status: {r_.status}", f"/return/{r_.order_number}")
         add(r, _exact(r_.order_number, term))
@@ -108,7 +114,8 @@ def global_search(
         add(r, _exact(p.code, term) or _exact(p.name, term))
 
     # ── Customers ───────────────────────────────────────────────────────────
-    customers = db.query(Customer).filter(
+    # Master data (customers, suppliers) is No Access for scoped roles — Appendix A
+    customers = [] if not scope.unrestricted else db.query(Customer).filter(
         Customer.name.ilike(like) | Customer.customer_ref.ilike(like)
     ).limit(20).all()
     for c in customers:
@@ -124,7 +131,7 @@ def global_search(
         add(r, _exact(fw.firmware_name, term) or _exact(fw.version, term))
 
     # ── Suppliers ───────────────────────────────────────────────────────────
-    suppliers = db.query(Supplier).filter(
+    suppliers = [] if not scope.unrestricted else db.query(Supplier).filter(
         Supplier.name.ilike(like) | Supplier.code.ilike(like)
     ).limit(20).all()
     for s in suppliers:

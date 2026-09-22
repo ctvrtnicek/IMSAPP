@@ -8,11 +8,12 @@ Prefix: /api/inventory
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
+from sqlalchemy import func, true
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
+from scoping import Scope, get_scope
 from models import (
     Location,
     LocationType,
@@ -37,6 +38,16 @@ from schemas import (
 )
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
+
+
+def _visible(scope: Scope):
+    """Serial visibility clause for aggregate queries (no-op when unrestricted)."""
+    return true() if scope.unrestricted else scope.serial_filter()
+
+
+def _ns_visible(scope: Scope):
+    """Accessories have no history — visible by current location only."""
+    return true() if scope.unrestricted else NonSerialisedInventory.location_id.in_(scope.location_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +133,7 @@ def list_states(
     include_inactive: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List terminal states. Active only by default."""
     q = db.query(TerminalState)
@@ -144,9 +156,10 @@ def list_serials(
     limit: int = Query(500, ge=1, le=5000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List serial numbers with optional filters."""
-    q = db.query(SerialNumber).filter(SerialNumber.active == 1)
+    q = scope.apply(db.query(SerialNumber).filter(SerialNumber.active == 1), scope.serial_filter)
 
     if state_code == "_PEGGED":
         q = q.filter(SerialNumber.pegged_to_order_id.isnot(None))
@@ -212,8 +225,10 @@ def get_serial_detail(
     serial_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Return a single terminal's details plus state history."""
+    scope.ensure(db, SerialNumber, serial_id, scope.serial_filter, "Serial number not found")
     s = db.query(SerialNumber).filter(SerialNumber.id == serial_id).first()
     if not s:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Serial number not found")
@@ -239,6 +254,7 @@ def get_serial_detail(
 def by_state(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Count of active serial numbers grouped by state, ordered by count desc."""
     rows = (
@@ -250,6 +266,7 @@ def by_state(
         )
         .join(SerialNumber, SerialNumber.current_state_id == TerminalState.id)
         .filter(SerialNumber.active == 1)
+        .filter(_visible(scope))
         .group_by(TerminalState.id, TerminalState.code, TerminalState.display_name, TerminalState.warehouse_type)
         .order_by(func.count(SerialNumber.id).desc())
         .all()
@@ -260,7 +277,7 @@ def by_state(
     ]
 
     pegged_count = db.query(func.count(SerialNumber.id)).filter(
-        SerialNumber.active == 1, SerialNumber.pegged_to_order_id.isnot(None)
+        SerialNumber.active == 1, SerialNumber.pegged_to_order_id.isnot(None), _visible(scope)
     ).scalar() or 0
     if pegged_count > 0:
         result.append({"state_code": "_PEGGED", "state_name": "Pegged", "warehouse_type": "Pegged", "count": pegged_count})
@@ -276,6 +293,7 @@ def by_state(
 def by_location(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Count of active serial numbers grouped by location."""
     # Serialised counts
@@ -287,7 +305,7 @@ def by_location(
             func.count(SerialNumber.id).label("serialised_count"),
         )
         .join(SerialNumber, SerialNumber.current_location_id == Location.id)
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _visible(scope))
         .group_by(Location.id, Location.code, Location.name)
         .all()
     )
@@ -298,6 +316,7 @@ def by_location(
             NonSerialisedInventory.location_id,
             func.sum(NonSerialisedInventory.quantity).label("ns_count"),
         )
+        .filter(_ns_visible(scope))
         .group_by(NonSerialisedInventory.location_id)
         .all()
     )
@@ -309,7 +328,7 @@ def by_location(
             SerialNumber.current_location_id,
             func.sum(SerialNumber.accumulated_cost).label("total_cost"),
         )
-        .filter(SerialNumber.active == 1, SerialNumber.accumulated_cost.isnot(None))
+        .filter(SerialNumber.active == 1, SerialNumber.accumulated_cost.isnot(None), _visible(scope))
         .group_by(SerialNumber.current_location_id)
         .all()
     )
@@ -409,6 +428,7 @@ REPAIR_CODES = ("IN_REPAIR",)
 def by_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Count of active serial numbers grouped by product."""
     # Total per product
@@ -420,7 +440,7 @@ def by_product(
             func.count(SerialNumber.id).label("total"),
         )
         .join(SerialNumber, SerialNumber.product_id == Product.id)
-        .filter(SerialNumber.active == 1)
+        .filter(SerialNumber.active == 1, _visible(scope))
         .group_by(Product.id, Product.code, Product.name)
         .all()
     )
@@ -432,7 +452,7 @@ def by_product(
             func.count(SerialNumber.id).label("cnt"),
         )
         .join(TerminalState, SerialNumber.current_state_id == TerminalState.id)
-        .filter(SerialNumber.active == 1, TerminalState.code.in_(AVAILABLE_CODES))
+        .filter(SerialNumber.active == 1, TerminalState.code.in_(AVAILABLE_CODES), _visible(scope))
         .group_by(SerialNumber.product_id)
         .all()
     )
@@ -445,7 +465,7 @@ def by_product(
             func.count(SerialNumber.id).label("cnt"),
         )
         .join(TerminalState, SerialNumber.current_state_id == TerminalState.id)
-        .filter(SerialNumber.active == 1, TerminalState.code.in_(TRANSIT_CODES))
+        .filter(SerialNumber.active == 1, TerminalState.code.in_(TRANSIT_CODES), _visible(scope))
         .group_by(SerialNumber.product_id)
         .all()
     )
@@ -458,7 +478,7 @@ def by_product(
             func.count(SerialNumber.id).label("cnt"),
         )
         .join(TerminalState, SerialNumber.current_state_id == TerminalState.id)
-        .filter(SerialNumber.active == 1, TerminalState.code.in_(REPAIR_CODES))
+        .filter(SerialNumber.active == 1, TerminalState.code.in_(REPAIR_CODES), _visible(scope))
         .group_by(SerialNumber.product_id)
         .all()
     )
@@ -470,7 +490,7 @@ def by_product(
             SerialNumber.product_id,
             func.sum(SerialNumber.accumulated_cost).label("total_cost"),
         )
-        .filter(SerialNumber.active == 1, SerialNumber.accumulated_cost.isnot(None))
+        .filter(SerialNumber.active == 1, SerialNumber.accumulated_cost.isnot(None), _visible(scope))
         .group_by(SerialNumber.product_id)
         .all()
     )
@@ -499,12 +519,13 @@ def by_product(
 def list_expecting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """All terminals currently in EXPECTING state."""
     rows = (
         db.query(SerialNumber)
         .join(TerminalState, SerialNumber.current_state_id == TerminalState.id)
-        .filter(SerialNumber.active == 1, TerminalState.code == "EXPECTING")
+        .filter(SerialNumber.active == 1, TerminalState.code == "EXPECTING", _visible(scope))
         .all()
     )
     return [serial_to_out(s) for s in rows]
@@ -520,13 +541,14 @@ IN_TRANSIT_CODES = ("EXPECTING", "TRANSIT_TO_COMPANY", "TRANSIT_TO_WAREHOUSE", "
 def list_in_transit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """All terminals in any in-transit state."""
     from sqlalchemy import func as sqlfunc
     rows = (
         db.query(SerialNumber)
         .join(TerminalState, SerialNumber.current_state_id == TerminalState.id)
-        .filter(SerialNumber.active == 1, TerminalState.code.in_(IN_TRANSIT_CODES))
+        .filter(SerialNumber.active == 1, TerminalState.code.in_(IN_TRANSIT_CODES), _visible(scope))
         .all()
     )
 
@@ -610,9 +632,10 @@ def list_in_transit(
 def list_non_serialised(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """List all non-serialised inventory rows."""
-    rows = db.query(NonSerialisedInventory).all()
+    rows = db.query(NonSerialisedInventory).filter(_ns_visible(scope)).all()
     return [non_serialised_to_out(r) for r in rows]
 
 
@@ -625,10 +648,14 @@ def create_non_serialised(
     payload: NonSerialisedCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Create a new non-serialised inventory entry (admin / warehouse_user only)."""
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or warehouse_user only")
+
+    if not scope.allows_location(payload.location_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Location not assigned to you")
 
     row = NonSerialisedInventory(
         product_id=payload.product_id,
@@ -652,12 +679,13 @@ def update_non_serialised(
     payload: NonSerialisedUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """Update quantity/state of a non-serialised inventory row (admin / warehouse_user only)."""
     if current_user.role not in ("admin", "warehouse_user"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or warehouse_user only")
 
-    row = db.query(NonSerialisedInventory).filter(NonSerialisedInventory.id == ns_id).first()
+    row = db.query(NonSerialisedInventory).filter(NonSerialisedInventory.id == ns_id).filter(_ns_visible(scope)).first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Non-serialised inventory row not found")
 

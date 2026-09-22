@@ -456,6 +456,10 @@ export default function SupplierPortalPage() {
   }
 
   const username = localStorage.getItem('username') || 'Supplier'
+  // Multi-role users (e.g. repair centre + supplier) came here from the IMS sidebar — give them a way back
+  const hasOtherRoles = (() => {
+    try { return JSON.parse(localStorage.getItem('roles') || '[]').some(r => r !== 'supplier') } catch { return false }
+  })()
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-2)' }}>
@@ -465,6 +469,17 @@ export default function SupplierPortalPage() {
           Supplier Portal
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
+          {hasOtherRoles && (
+            <a
+              href="/dashboard"
+              style={{
+                fontSize: 'var(--fs-body-sm)', color: '#fff', textDecoration: 'none',
+                border: '1px solid rgba(255,255,255,0.4)', padding: '4px 14px', borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              ← Back to IMS
+            </a>
+          )}
           <span style={{ fontSize: 'var(--fs-body-sm)', opacity: 0.85 }}>
             {username} <span style={{ opacity: 0.65, fontSize: 'var(--fs-label)' }}>(Supplier)</span>
           </span>

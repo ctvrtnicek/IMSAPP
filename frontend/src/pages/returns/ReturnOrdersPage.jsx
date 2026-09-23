@@ -127,7 +127,7 @@ export function ReturnDetailPanel({ returnId, onBack, role, onCreateRepair }) {
       repair_centre_location_id: '',
       dispatch_date: new Date().toISOString().slice(0, 10),
       estimated_return_date: '',
-      return_location_id: '',
+      return_location_id: order?.receiving_location_id ? String(order.receiving_location_id) : '',
     })
     try {
       const res = await getLocations()
@@ -180,10 +180,9 @@ export function ReturnDetailPanel({ returnId, onBack, role, onCreateRepair }) {
     (isAdmin || isPlanner || isWarehouse) &&
     order?.status === 'Received'
 
-  const canCreateRepair =
-    (isAdmin || isPlanner) &&
-    order?.status === 'Inspected' &&
-    order?.inspection_outcome === 'Defective'
+  // Decided server-side: role, inspected as Defective, received at the user's
+  // warehouse (warehouse users), and no repair order still open for this return
+  const canCreateRepair = !!order?.can_create_repair
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-gray-500 text-sm">Loading...</p>
@@ -217,6 +216,21 @@ export function ReturnDetailPanel({ returnId, onBack, role, onCreateRepair }) {
                 <span><span className="font-semibold">Original Order:</span> {order.original_order_number}</span>
               )}
               <span><span className="font-semibold">Reason:</span> {order.reason}</span>
+              {order.receiving_location_name && (
+                <span><span className="font-semibold">Received at:</span> {order.receiving_location_name}</span>
+              )}
+              {order.repair_orders?.length > 0 && (
+                <span>
+                  <span className="font-semibold">Repair Order{order.repair_orders.length > 1 ? 's' : ''}:</span>{' '}
+                  {order.repair_orders.map((r, i) => (
+                    <span key={r.id}>
+                      {i > 0 && ', '}
+                      <a href={`/repair/${r.order_number}`} className="underline font-mono">{r.order_number}</a>
+                      {' '}({r.status})
+                    </span>
+                  ))}
+                </span>
+              )}
               {order.created_at && (
                 <span><span className="font-semibold">Created:</span> {order.created_at.slice(0, 10)}</span>
               )}
@@ -349,7 +363,7 @@ export function ReturnDetailPanel({ returnId, onBack, role, onCreateRepair }) {
                 required
               >
                 <option value="">Select repair centre...</option>
-                {locations.map((l) => (
+                {locations.filter((l) => l.location_type_name === 'Repair Centre').map((l) => (
                   <option key={l.id} value={l.id}>{l.code} – {l.name}</option>
                 ))}
               </select>

@@ -7,7 +7,7 @@ Current PRD: `SPECS/IMS - PRD v3.0 Consolidated_new.docx`. Its R3 detail section
 which is agentic work outside the 17 R3 items). `prd_appendixb.txt` is a truncated
 v2.2 extract (stops at 5.1) — don't use it for detailed specs.
 
-Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17 closed 2026-09-23.
+Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17 and #16 closed 2026-09-23.
 
 ## Data visibility rule (#14 / #16 / #17) — decided 2026-09-22
 
@@ -49,14 +49,6 @@ supplier) → union. Supplier-only users land on `/supplier-portal`; multi-role 
 land on the dashboard and get a "Supplier Portal" sidebar item (portal has "Back to
 IMS").
 
-## In progress
-
-- **#16 — Repair Shop Portal.** Scoping done by the same rule; document upload
-  already existed (`returns.py` `/repair/{id}/documents`, `RepairOrdersPage.jsx`).
-  Open: `repair_documents.rr_order_id` is an FK to `repair_rework_orders`, but the
-  UI uploads against `repair_orders` ids — the two tables' ids collide (both have
-  id 1). Needs fixing before #16 is done.
-
 ## Not implemented
 
 - **#12 — AI Assistant (proactive, alert-aware).** DB tables exist
@@ -85,6 +77,30 @@ normal navigation, role-limited menu, server-side scoping per the rule above.
 Note when testing: nearly all seed data flows out of Oostrum, so an Oostrum user
 legitimately sees stock now at Memphis/DHLAU etc. via history — use a Memphis user
 to see the restriction clearly.
+
+**#16 Repair Shop Portal** — closed 2026-09-23 after Jakub's local test. May be
+revisited in R4 when repair orders are auto-created.
+Same pattern as #17 (normal navigation, scoped by repair-centre location).
+Repair-only users get only the Repair Orders tab (Returns = No access, also
+enforced in the API and search). Documents moved to a new table
+`repair_order_documents` (FK → `repair_orders`, file bytes in the DB so they
+survive Render deploys) with upload / list / download; old `repair_documents`
+(wrong FK to `repair_rework_orders`, disk storage) dropped locally by
+`migrate_v26.py`. On Render the old empty table just stays unused.
+Repair status actions and role checks now honour all of a user's roles.
+Return → Repair (added 2026-09-23 at Jakub's request): repair orders show the
+originating Return Order and when/by whom they were created (detail + list).
+Warehouse users can Create Repair Order from a return inspected as Defective
+that was received at one of their warehouses (receiving warehouse = original
+order's fulfilling location, per the returns assumption). Admin/planner as
+before. One repair order per return (RE000003 has two parallel repairs from
+before this rule). The button lives on the Return Order detail, not the Repair
+Orders list. Repair centre must be a Repair Centre location; return location
+defaults to the receiving warehouse.
+Deferred to R4 (Jakub, 2026-09-23): Traceability → "Initiate RMA" still creates
+its repair order in the legacy `repair_rework_orders` table, which no screen
+lists (`RepairReworkPage.jsx` is unreferenced) and whose RR numbers clash with
+`repair_orders`. Fix with the R4 auto-draft repair / RMA work.
 
 Everything else on the 17-item R3 list, including the pieces recovered from the
 Aug 28 stash on 2026-08-29 (branding, blue theme, Admin section split, goods

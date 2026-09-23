@@ -996,26 +996,18 @@ CREATE TABLE IF NOT EXISTS product_suppliers (
 	FOREIGN KEY(supplier_id) REFERENCES suppliers (id), 
 	FOREIGN KEY(product_id) REFERENCES products (id)
 );
-CREATE TABLE IF NOT EXISTS repair_documents (
+CREATE TABLE IF NOT EXISTS repair_order_documents (
 	id INTEGER, 
-	rr_order_id INTEGER NOT NULL, 
+	repair_order_id INTEGER NOT NULL, 
 	file_name TEXT NOT NULL, 
-	file_path TEXT NOT NULL, 
+	content_type TEXT, 
+	data BLOB NOT NULL, 
 	file_size_bytes INTEGER, 
 	uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
 	uploaded_by_user_id INTEGER, 
 	PRIMARY KEY (id), 
 	FOREIGN KEY(uploaded_by_user_id) REFERENCES users (id), 
-	FOREIGN KEY(rr_order_id) REFERENCES repair_rework_orders (id)
-);
-CREATE TABLE IF NOT EXISTS repair_order_serials (
-	id INTEGER, 
-	repair_order_id INTEGER NOT NULL, 
-	serial_id INTEGER NOT NULL, 
-	PRIMARY KEY (id), 
-	FOREIGN KEY(serial_id) REFERENCES serial_numbers (id), 
-	FOREIGN KEY(repair_order_id) REFERENCES repair_orders (id), 
-	UNIQUE (repair_order_id, serial_id)
+	FOREIGN KEY(repair_order_id) REFERENCES repair_orders (id)
 );
 CREATE TABLE IF NOT EXISTS repair_orders (
 	id INTEGER, 
@@ -1041,6 +1033,15 @@ CREATE TABLE IF NOT EXISTS repair_orders (
 	UNIQUE (order_number), 
 	CHECK (status IN ('Dispatched','Received at Repair Centre','In Repair','Completed','Returned')), 
 	CHECK (outcome IN ('Repaired','Beyond Repair'))
+);
+CREATE TABLE IF NOT EXISTS repair_order_serials (
+	id INTEGER, 
+	repair_order_id INTEGER NOT NULL, 
+	serial_id INTEGER NOT NULL, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(serial_id) REFERENCES serial_numbers (id), 
+	FOREIGN KEY(repair_order_id) REFERENCES repair_orders (id), 
+	UNIQUE (repair_order_id, serial_id)
 );
 CREATE TABLE IF NOT EXISTS repair_rework_received (
 	id INTEGER, 

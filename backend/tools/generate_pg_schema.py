@@ -116,7 +116,12 @@ def main():
     seen = set()
     for table in sorted(meta2.tables.values(), key=lambda t: t.name):
         idx = 0
-        for fk in [c for c in table.constraints if isinstance(c, ForeignKeyConstraint)]:
+        # table.constraints is a set — sort so fk_<table>_N numbering is stable between runs
+        fks = sorted(
+            (c for c in table.constraints if isinstance(c, ForeignKeyConstraint)),
+            key=lambda c: ([col.name for col in c.columns], c.elements[0].column.table.name),
+        )
+        for fk in fks:
             cols = [c.name for c in fk.columns]
             refcols = [e.column.name for e in fk.elements]
             reftable = fk.elements[0].column.table.name

@@ -564,6 +564,8 @@ class RepairOrder(Base):
     repair_centre = relationship("Location", foreign_keys=[repair_centre_location_id])
     return_location = relationship("Location", foreign_keys=[return_location_id])
     serials = relationship("RepairOrderSerial", back_populates="repair_order", cascade="all, delete-orphan")
+    return_order = relationship("ReturnOrder", back_populates="repair_orders")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
 
 
 class RepairOrderSerial(Base):
@@ -596,6 +598,7 @@ class ReturnOrder(Base):
     original_order = relationship("OutboundOrder", foreign_keys=[original_order_id])
     rma_reference = Column(Text, nullable=True)
     serials = relationship("ReturnOrderSerial", back_populates="return_order", cascade="all, delete-orphan")
+    repair_orders = relationship("RepairOrder", back_populates="return_order")
 
 
 class ReturnOrderSerial(Base):
@@ -1048,16 +1051,21 @@ class SerialImportBatch(Base):
 
 
 class RepairDocument(Base):
-    __tablename__ = "repair_documents"
+    # R3 #16 — documents uploaded against a repair order (the repair_orders table the
+    # Repair Orders UI uses). Replaces the old repair_documents table, whose FK pointed
+    # at repair_rework_orders by mistake. File bytes live in the DB (like
+    # claim_attachments) because Render's filesystem is wiped on every deploy.
+    __tablename__ = "repair_order_documents"
     id                  = Column(Integer, primary_key=True, autoincrement=True)
-    rr_order_id         = Column(Integer, ForeignKey("repair_rework_orders.id"), nullable=False)
+    repair_order_id     = Column(Integer, ForeignKey("repair_orders.id"), nullable=False)
     file_name           = Column(Text, nullable=False)
-    file_path           = Column(Text, nullable=False)
+    content_type        = Column(Text)
+    data                = Column(LargeBinary, nullable=False)
     file_size_bytes     = Column(Integer)
     uploaded_at         = Column(TIMESTAMP, server_default=func.current_timestamp())
     uploaded_by_user_id = Column(Integer, ForeignKey("users.id"))
-    rr_order    = relationship("RepairReworkOrder")
-    uploaded_by = relationship("User")
+    repair_order = relationship("RepairOrder")
+    uploaded_by  = relationship("User")
 
 
 # ---------------------------------------------------------------------------

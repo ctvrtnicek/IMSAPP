@@ -100,7 +100,9 @@ def global_search(
         add(r, _exact(r_.order_number, term))
 
     # ── Return Orders ───────────────────────────────────────────────────────
-    ret = scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.order_number.ilike(like)).limit(20).all()
+    # Returns: No access for repair-centre / supplier-only users (Appendix A)
+    roles = set(getattr(current_user, "roles_list", None) or [current_user.role])
+    ret = [] if roles <= {"repair_centre", "supplier"} else scope.apply(db.query(ReturnOrder), scope.return_filter).filter(ReturnOrder.order_number.ilike(like)).limit(20).all()
     for r_ in ret:
         r = _hit("Return Order", r_.order_number, f"Reason: {r_.reason} | Status: {r_.status}", f"/return/{r_.order_number}")
         add(r, _exact(r_.order_number, term))

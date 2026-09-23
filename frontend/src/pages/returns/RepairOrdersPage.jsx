@@ -8,7 +8,32 @@ import {
 import {
   uploadRepairDocument,
   listRepairDocuments,
+  downloadRepairDocument,
 } from '../../api/repair_documents.js'
+
+// All roles of the signed-in user (multi-role aware), falling back to the primary role
+function currentRoles(role) {
+  try {
+    const r = JSON.parse(localStorage.getItem('roles') || '[]')
+    if (r.length) return r
+  } catch { /* ignore */ }
+  return role ? [role] : []
+}
+
+// "2026-09-23 06:51:53" -> "2026-09-23 06:51"
+function fmtDateTime(ts) {
+  return ts ? String(ts).replace('T', ' ').slice(0, 16) : '—'
+}
+
+// Originating return order — a link for users with Returns access, plain text otherwise
+// (Returns is No access for repair-centre / supplier-only users)
+function ReturnOrderRef({ number, role }) {
+  if (!number) return '—'
+  const canOpen = currentRoles(role).some((r) => r !== 'repair_centre' && r !== 'supplier')
+  return canOpen
+    ? <a href={`/return/${number}`} className="underline font-mono">{number}</a>
+    : <span className="font-mono">{number}</span>
+}
 
 // ── Status badge colours ──────────────────────────────────────────────────────
 const REPAIR_STATUS_STYLES = {
@@ -58,6 +83,20 @@ function RepairDocumentsSection({ repairId }) {
       setDocs([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleDownload(d) {
+    try {
+      const res = await downloadRepairDocument(repairId, d.id)
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = d.file_name
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('Failed to download document.')
     }
   }
 
@@ -129,8 +168,17 @@ function RepairDocumentsSection({ repairId }) {
           </thead>
           <tbody>
             {docs.map((d, i) => (
-              <tr key={i} className="border-b border-gray-50">
-                <td className="px-3 py-2 text-gray-800">{d.file_name}</td>
+              <tr key={d.id ?? i} className="border-b border-gray-50">
+                <td className="px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(d)}
+                    className="underline"
+                    style={{ color: 'var(--cadet-dark)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                  >
+                    {d.file_name}
+                  </button>
+                </td>
                 <td className="px-3 py-2 text-gray-600">{d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '--'}</td>
                 <td className="px-3 py-2 text-gray-600">{d.uploaded_by || '--'}</td>
               </tr>
@@ -218,8 +266,9 @@ export function RepairDetailPanel({ repairId, onBack, role }) {
   }
 
   // ── Role + status checks ───────────────────────────────────────────────────
-  const isAdmin = role === 'admin'
-  const isRepairCentre = role === 'repair_centre'
+  const roles = currentRoles(role)
+  const isAdmin = roles.includes('admin')
+  const isRepairCentre = roles.includes('repair_centre')
 
   const canMarkReceived =
     (isAdmin || isRepairCentre) && order?.status === 'Dispatched'
@@ -269,6 +318,10 @@ export function RepairDetailPanel({ repairId, onBack, role }) {
             </div>
             <div className="flex flex-col gap-1 text-sm text-gray-600">
               <span>
+                <span className="font-semibold">Return Order:</span>{' '}
+                <ReturnOrderRef number={order.return_order_number} role={role} />
+              </span>
+              <span>
                 <span className="font-semibold">Repair Centre:</span>{' '}
                 {order.repair_centre_name || '—'}
               </span>
@@ -300,7 +353,10 @@ export function RepairDetailPanel({ repairId, onBack, role }) {
                 <span><span className="font-semibold">Notes:</span> {order.repair_notes}</span>
               )}
               {order.created_at && (
-                <span><span className="font-semibold">Created:</span> {order.created_at.slice(0, 10)}</span>
+                <span>
+                  <span className="font-semibold">Created:</span> {fmtDateTime(order.created_at)}
+                  {order.created_by && <> by {order.created_by}</>}
+                </span>
               )}
             </div>
           </div>
@@ -602,8 +658,10 @@ export default function RepairOrdersPage({ role, onView, activeRepairId, onBack 
             <thead>
               <tr className="text-left text-gray-500 text-xs uppercase border-b border-gray-100">
                 <th className="px-4 py-3 font-semibold">Order #</th>
+                <th className="px-4 py-3 font-semibold">Return Order</th>
                 <th className="px-4 py-3 font-semibold">Repair Centre</th>
                 <th className="px-4 py-3 font-semibold">Serials</th>
+                <th className="px-4 py-3 font-semibold">Created</th>
                 <th className="px-4 py-3 font-semibold">Dispatch Date</th>
                 <th className="px-4 py-3 font-semibold">Est. Return</th>
                 <th className="px-4 py-3 font-semibold">Actual Cost</th>
@@ -615,8 +673,10 @@ export default function RepairOrdersPage({ role, onView, activeRepairId, onBack 
               {paged.map((o) => (
                 <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
                   <td className="px-4 py-3 font-mono font-semibold text-gray-800">{o.order_number}</td>
+                  <td className="px-4 py-3 text-gray-600"><ReturnOrderRef number={o.return_order_number} role={role} /></td>
                   <td className="px-4 py-3 text-gray-600">{o.repair_centre_name || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{o.serials?.length ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmtDateTime(o.created_at)}</td>
                   <td className="px-4 py-3 text-gray-600">{o.dispatch_date || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">{o.estimated_return_date || '—'}</td>
                   <td className="px-4 py-3 text-gray-600">

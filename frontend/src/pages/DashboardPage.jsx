@@ -501,13 +501,17 @@ function DashboardPageInner({ auth, setAuth }) {
     }
 
     if (activeNav === 'repair-rework') {
+      // Appendix A: Returns is No access for repair-centre / supplier-only users
+      const canSeeReturns = roles.some(r => r !== 'repair_centre' && r !== 'supplier')
+      const returnsTabs   = canSeeReturns ? RETURNS_TABS : RETURNS_TABS.filter(t => t.id !== 'return-orders')
+      const returnsTab    = canSeeReturns ? activeReturnsTab : 'repair-orders'
       return (
         <div className="flex flex-col h-full">
           <div className="mb-5">
             <h1 style={{ fontSize: 'var(--fs-h2)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', marginBottom: 16 }}>Returns &amp; Repairs</h1>
             <SubTabBar
-              tabs={RETURNS_TABS}
-              active={activeReturnsTab}
+              tabs={returnsTabs}
+              active={returnsTab}
               onChange={(id) => {
                 setActiveReturnsTab(id)
                 setActiveReturnDetail(null)
@@ -516,10 +520,9 @@ function DashboardPageInner({ auth, setAuth }) {
             />
           </div>
           <div className="flex-1">
-            {activeReturnsTab === 'return-orders' && (
+            {returnsTab === 'return-orders' && (
               <ReturnOrdersPage
                 role={role}
-               
                 onView={(id) => setActiveReturnDetail(id)}
                 onCreateRepair={(repairId) => {
                   setActiveReturnsTab('repair-orders')
@@ -527,7 +530,7 @@ function DashboardPageInner({ auth, setAuth }) {
                 }}
               />
             )}
-            {activeReturnsTab === 'repair-orders' && (
+            {returnsTab === 'repair-orders' && (
               <RepairOrdersPage
                 role={role}
                 onView={(id) => setActiveRepairDetail(id)}

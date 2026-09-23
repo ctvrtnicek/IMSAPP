@@ -7,7 +7,7 @@ Current PRD: `SPECS/IMS - PRD v3.0 Consolidated_new.docx`. Its R3 detail section
 which is agentic work outside the 17 R3 items). `prd_appendixb.txt` is a truncated
 v2.2 extract (stops at 5.1) — don't use it for detailed specs.
 
-Agreed finishing order: #17 → #16 → #9 → #12 → #13.
+Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17 closed 2026-09-23.
 
 ## Data visibility rule (#14 / #16 / #17) — decided 2026-09-22
 
@@ -51,9 +51,6 @@ IMS").
 
 ## In progress
 
-- **#17 — Warehouse Portal.** Decided: no separate portal — same navigation as other
-  users, menu limited by role (Appendix A), data scoped per rule above. The separate
-  `/warehouse-portal` page was removed. Awaiting Jakub's local test.
 - **#16 — Repair Shop Portal.** Scoping done by the same rule; document upload
   already existed (`returns.py` `/repair/{id}/documents`, `RepairOrdersPage.jsx`).
   Open: `repair_documents.rr_order_id` is an FK to `repair_rework_orders`, but the
@@ -81,6 +78,13 @@ IMS").
   identical layout. Do last, as a regression pass.
 
 ## Confirmed done (for reference — don't re-investigate these)
+
+**#17 Warehouse Portal** — closed 2026-09-23 after Jakub's local test (Oostrum and
+Memphis users each see only their own terminals, orders, R+R). No separate portal:
+normal navigation, role-limited menu, server-side scoping per the rule above.
+Note when testing: nearly all seed data flows out of Oostrum, so an Oostrum user
+legitimately sees stock now at Memphis/DHLAU etc. via history — use a Memphis user
+to see the restriction clearly.
 
 Everything else on the 17-item R3 list, including the pieces recovered from the
 Aug 28 stash on 2026-08-29 (branding, blue theme, Admin section split, goods

@@ -25,6 +25,10 @@ export default function AlertsPage({ onNavigate, locationFilter }) {
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
+  // Running the alert engine is admin-only (API returns 403 for other roles)
+  const isAdmin = (() => {
+    try { return JSON.parse(localStorage.getItem('roles') || '[]').includes('admin') } catch { return false }
+  })()
   const [error, setError] = useState(null)
   const [runResult, setRunResult] = useState(null)
 
@@ -85,13 +89,13 @@ export default function AlertsPage({ onNavigate, locationFilter }) {
           </span>
         )}
 
-        <button
+        {isAdmin && <button
           onClick={handleRun}
           disabled={running}
           style={{ marginLeft: 'auto', padding: '0.4rem 1rem', borderRadius: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: '#fff', background: 'var(--cadet-dark)', border: 'none', cursor: running ? 'not-allowed' : 'pointer', opacity: running ? 0.7 : 1 }}
         >
           {running ? 'Running…' : '▶ Run Alert Engine'}
-        </button>
+        </button>}
       </div>
 
       {runResult && (

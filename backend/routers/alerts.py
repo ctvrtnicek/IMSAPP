@@ -17,17 +17,32 @@ from pydantic import BaseModel
 from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session
 
+from auth import get_current_user
 from database import get_db
+from scoping import Scope, get_scope
 from models import (
     Alert, AlertRule,
     ReturnOrder, RepairOrder,
     SerialNumber, StateHistory, TerminalState,
     SafetyStockTarget, Product, Location,
     TransitTimeLane, TransitTimeFallback,
-    PurchaseOrder,
+    PurchaseOrder, User,
 )
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    roles = getattr(current_user, "roles_list", [current_user.role])
+    if "admin" not in roles:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+def _scoped(q, scope: Scope):
+    """Location-scoped users (warehouse / repair centre) only see alerts at their
+    locations — same rule as the AI Assistant (ai_assistant._alert_query)."""
+    return q if scope.unrestricted else q.filter(Alert.location_id.in_(scope.location_ids))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -431,7 +446,7 @@ class AlertRuleUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/run")
-def run_alerts(db: Session = Depends(get_db)):
+def run_alerts(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """Re-evaluate all enabled alert rules and return summary."""
     rules = db.query(AlertRule).filter(AlertRule.enabled == 1).all()
     summary = {}
@@ -446,10 +461,14 @@ def run_alerts(db: Session = Depends(get_db)):
 
 
 @router.get("/summary")
-def alert_summary(db: Session = Depends(get_db)):
+def alert_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
     """Counts of New alerts by severity — used by the bell icon."""
     rows = (
-        db.query(Alert.severity, sqlfunc.count(Alert.id))
+        _scoped(db.query(Alert.severity, sqlfunc.count(Alert.id)), scope)
         .filter(Alert.status == "New")
         .group_by(Alert.severity)
         .all()
@@ -469,11 +488,13 @@ def list_alerts(
     status: Optional[str] = Query(None),
     severity: Optional[str] = Query(None),
     rule_code: Optional[str] = Query(None),
-    location_ids: Optional[str] = Query(None),   # comma-separated
+    location_ids: Optional[str] = Query(None),   # comma-separated; optional UI filter, never the security boundary
     limit: int = Query(200),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
-    q = db.query(Alert)
+    q = _scoped(db.query(Alert), scope)
     if status:
         q = q.filter(Alert.status == status)
     if severity:
@@ -516,18 +537,24 @@ def list_alerts(
 
 
 @router.post("/{alert_id}/acknowledge")
-def acknowledge_alert(alert_id: int, db: Session = Depends(get_db)):
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+def acknowledge_alert(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    alert = _scoped(db.query(Alert), scope).filter(Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(404, "Alert not found")
     alert.status = "Acknowledged"
     alert.acknowledged_at = _now()
+    alert.acknowledged_by_user_id = current_user.id
     db.commit()
     return {"ok": True}
 
 
 @router.get("/rules")
-def list_rules(db: Session = Depends(get_db)):
+def list_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rules = db.query(AlertRule).order_by(AlertRule.id).all()
     return [
         {
@@ -544,7 +571,12 @@ def list_rules(db: Session = Depends(get_db)):
 
 
 @router.put("/rules/{rule_id}")
-def update_rule(rule_id: int, payload: AlertRuleUpdate, db: Session = Depends(get_db)):
+def update_rule(
+    rule_id: int,
+    payload: AlertRuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
     rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "Rule not found")

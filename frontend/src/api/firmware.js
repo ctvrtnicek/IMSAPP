@@ -29,3 +29,8 @@ export const deleteProductBomComponent = (productId, bomId) => api.delete(`/prod
 
 export const setProductLatestFirmware = (productId, firmwareId) =>
   api.put(`/products/${productId}/latest-firmware`, { firmware_id: firmwareId })
+// R3 #9 — BOM component supply (stock per location, reservations, open POs)
+export const getBomSupply = (productId, locationId, orderId) =>
+  api.get(`/products/${productId}/bom-supply`, {
+    params: { ...(locationId ? { location_id: locationId } : {}), ...(orderId ? { order_id: orderId } : {}) },
+  })

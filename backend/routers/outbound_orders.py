@@ -10,12 +10,16 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from auth import get_current_user
 from scoping import Scope, get_scope
 from database import get_db
 from state_activity_map import get_activity_description
+import accessory_stock
+from bom_planner import (
+    atp_rerun_blocker, cancel_draft_transfer, kit_serial_components, refresh_after_transfer, transfer_ds_ids,
+)
 from models import (
     Customer,
     Location,
@@ -61,6 +65,8 @@ class ShipPayload(BaseModel):
     estimated_arrival_date: Optional[str] = None
     shipping_cost: Optional[float] = None
     shipping_cost_currency: Optional[str] = None
+    # R3 #9: ship anyway although it uses accessory stock reserved for other orders
+    confirm_reservation_conflict: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -103,9 +109,92 @@ def line_to_out(line: OutboundOrderLine) -> dict:
         "fulfilling_location_id": line.fulfilling_location_id,
         "fulfilling_location_code": line.fulfilling_location.code if line.fulfilling_location else None,
         "bom_assembly_status": line.bom_assembly_status,
+        "is_bom": bool(line.product.is_bom) if line.product else False,
+        "serialised": bool(line.product.serialised) if line.product else True,
+        "component_transfer_orders": _transfer_orders_out(line),
+        **_allocation_product(line),
         "atp_reasoning": line.atp_reasoning,
         "atp_split_details": __import__('json').loads(line.atp_split_details) if line.atp_split_details else None,
     }
+
+
+CLOSED_ORDER_STATUSES = ("Shipped", "Delivered", "Cancelled", "Closed")
+
+
+def _transfer_orders_out(line: OutboundOrderLine) -> list:
+    """R3 #9 — auto-drafted component transfer DS for a BOM line."""
+    ids = transfer_ds_ids(line)
+    db = object_session(line)
+    if not ids or db is None:
+        return []
+    out = []
+    for ds in db.query(OutboundOrder).filter(OutboundOrder.id.in_(ids)).order_by(OutboundOrder.id).all():
+        dl = ds.lines[0] if ds.lines else None
+        out.append({
+            "id": ds.id,
+            "order_number": ds.order_number,
+            "status": ds.status,
+            "from_location_code": ds.fulfilling_location.code if ds.fulfilling_location else None,
+            "product_code": dl.product.code if dl and dl.product else None,
+            "quantity": dl.quantity if dl else None,
+        })
+    return out
+
+
+def _allocation_product(line: OutboundOrderLine) -> dict:
+    """Which serials are allocated to this line: its own product, or for a kit its
+    serialised component (V400-Kit -> V400M). needs_serials=False for accessory lines."""
+    p = line.product
+    db = object_session(line)
+    if not p or not p.serialised:
+        return {"needs_serials": False, "allocation_product_id": None, "allocation_product_code": None}
+    kit = kit_serial_components(db, p.id) if (p.is_bom and db is not None) else []
+    target = kit[0].component if kit else p
+    return {"needs_serials": True, "allocation_product_id": target.id, "allocation_product_code": target.code,
+            "is_kit": bool(kit)}
+
+
+def _kit_terminals_out(order: OutboundOrder) -> list:
+    """Kit terminals pegged to the order, per product/location — shown next to the
+    accessory reservations so every component of the kit is listed."""
+    db = object_session(order)
+    if db is None:
+        return []
+    kit_pids = {
+        c.component_product_id
+        for l in order.lines if l.product and l.product.is_bom
+        for c in kit_serial_components(db, l.product_id)
+    }
+    if not kit_pids:
+        return []
+    from collections import Counter
+    counts = Counter(
+        (sn.product.code if sn.product else None, sn.current_location.code if sn.current_location else None)
+        for sn in db.query(SerialNumber).filter(
+            SerialNumber.pegged_to_order_id == order.id, SerialNumber.product_id.in_(kit_pids))
+    )
+    return [{"product_code": p, "location_code": l, "quantity": n, "status": "Pegged terminals"}
+            for (p, l), n in sorted(counts.items(), key=lambda x: (x[0][0] or "", x[0][1] or ""))]
+
+
+def _reservations_out(order: OutboundOrder) -> list:
+    db = object_session(order)
+    if db is None:
+        return []
+    incoming = accessory_stock.incoming_transfers(db, order.id)
+    return [
+        {
+            "id": r.id,
+            "order_line_id": r.order_line_id,
+            "product_code": r.product.code if r.product else None,
+            "location_code": r.location.code if r.location else None,
+            "quantity": r.quantity,
+            "status": r.status,
+            # e.g. [["DS000041", 5]] — reserved stock still arriving on a transfer DS
+            "incoming": incoming.get((r.product_id, r.location_id), []) if r.status == "Reserved" else [],
+        }
+        for r in accessory_stock.order_reservations(db, order.id)
+    ]
 
 
 def serial_to_out(oos: OutboundOrderSerial) -> dict:
@@ -157,6 +246,12 @@ def order_to_out(order: OutboundOrder, include_lines: bool = True) -> dict:
     if include_lines:
         result["lines"] = [line_to_out(line) for line in order.lines]
         result["allocated_serials"] = [serial_to_out(oos) for oos in order.serials]
+        db = object_session(order)
+        result["accessory_reservations"] = _reservations_out(order)
+        result["kit_terminals"] = _kit_terminals_out(order)
+        result["reservation_warnings"] = accessory_stock.reservation_warnings(db, order.id) if db else []
+        result["atp_has_run"] = any(l.atp_status for l in order.lines)
+        result["atp_rerun_blocked_reason"] = atp_rerun_blocker(db, order) if db else None
     return result
 
 
@@ -194,6 +289,15 @@ def get_available_serials(
         .all()
     )
 
+    peg_orders = {
+        o.id: o for o in db.query(OutboundOrder).filter(
+            OutboundOrder.id.in_({s.pegged_to_order_id for s in serials if s.pegged_to_order_id}))
+    }
+
+    def _peg(s):
+        o = peg_orders.get(s.pegged_to_order_id)
+        return (o.id, o.order_number) if o and o.status not in CLOSED_ORDER_STATUSES else (None, None)
+
     return [
         {
             "id": s.id,
@@ -201,6 +305,9 @@ def get_available_serials(
             "product_code": s.product.code if s.product else None,
             "current_state_code": s.current_state.code if s.current_state else None,
             "current_location_code": s.current_location.code if s.current_location else None,
+            # R3 #9: ATP peg — the dialog pre-selects this order's, blocks other orders'
+            "pegged_to_order_id": _peg(s)[0],
+            "pegged_to_order_number": _peg(s)[1],
         }
         for s in serials
     ]
@@ -474,6 +581,15 @@ def allocate_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Serial {serial.serial_number} is not in an AVAILABLE state",
             )
+        # R3 #9: a terminal pegged by ATP to another open order can't be allocated here
+        if serial.pegged_to_order_id and serial.pegged_to_order_id != order.id:
+            other = db.query(OutboundOrder).filter(OutboundOrder.id == serial.pegged_to_order_id).first()
+            if other and other.status not in CLOSED_ORDER_STATUSES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Serial {serial.serial_number} is pegged to {other.order_number}",
+                )
+        serial.pegged_to_order_id = order.id
         # Verify the serial belongs to the fulfilling location
         if order.fulfilling_location_id and serial.current_location_id != order.fulfilling_location_id:
             raise HTTPException(
@@ -518,6 +634,27 @@ def allocate_order(
     order.status = "Allocated"
     db.flush()
 
+    # R3 #9: once a line is fully allocated, ATP pegs on terminals that were NOT picked
+    # for it are released (the warehouse may allocate other terminals than ATP pegged)
+    allocs = db.query(OutboundOrderSerial).filter(OutboundOrderSerial.order_id == order.id).all()
+    allocated_ids = {a.serial_id for a in allocs}
+    for line in order.lines:
+        alloc = _allocation_product(line)
+        if not alloc["needs_serials"]:
+            continue
+        per_unit = 1
+        if alloc.get("is_kit"):
+            comp = kit_serial_components(db, line.product_id)[0]
+            per_unit = comp.quantity or 1
+        on_line = sum(1 for a in allocs if a.order_line_id == line.id)
+        if on_line >= per_unit * line.quantity:
+            for sn in db.query(SerialNumber).filter(
+                SerialNumber.pegged_to_order_id == order.id,
+                SerialNumber.product_id == alloc["allocation_product_id"],
+                ~SerialNumber.id.in_(allocated_ids),
+            ):
+                sn.pegged_to_order_id = None
+
     # ── Auto-create / refresh Pick Work Order ──────────────────────────────
     # Cancel any existing open WO so we start fresh with the updated allocation.
     existing_wo = (
@@ -539,6 +676,11 @@ def allocate_order(
     else:
         wo_number = f"WO{order_id:06d}"
 
+    # Accessories / BOM components must be reserved before they can be picked
+    if not accessory_stock.order_reservations(db, order.id):
+        accessory_stock.sync_order_reservations(db, order)
+    needs_assembly = any(l.product and l.product.is_bom for l in order.lines)
+
     new_wo = WorkOrder(
         order_number=wo_number,
         outbound_order_id=order_id,
@@ -546,9 +688,20 @@ def allocate_order(
         status="Open",
         location_id=order.fulfilling_location_id,
         created_by_user_id=current_user.id,
+        requires_assembly=1 if needs_assembly else 0,
     )
     db.add(new_wo)
     db.flush()
+
+    # R3 #9: every BOM part is picked — one quantity line per reserved accessory/component
+    for r in accessory_stock.order_reservations(db, order.id):
+        if r.status == "Reserved":
+            db.add(WorkOrderLine(
+                work_order_id=new_wo.id,
+                outbound_order_line_id=r.order_line_id,
+                product_id=r.product_id,
+                quantity=r.quantity,
+            ))
 
     # Create one WO line per allocated serial
     for oos in order.serials:
@@ -605,6 +758,22 @@ def ship_order(
             detail=f"Work Order {open_wo.order_number} must be completed before shipping.",
         )
 
+    # R3 #9: accessories must physically be there; taking other orders' reservations needs confirmation
+    missing = accessory_stock.physical_shortages(db, order)
+    if missing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Not enough accessory stock to ship: " + "; ".join(missing))
+    conflicts = accessory_stock.ship_conflicts(db, order)
+    if conflicts and not payload.confirm_reservation_conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "RESERVATION_CONFLICT",
+                "message": "Shipping this order uses accessory stock reserved for other orders.",
+                "conflicts": conflicts,
+            },
+        )
+
     # Determine target transit state
     if order.order_type == "Distribution":
         transit_code = "TRANSIT_TO_WAREHOUSE"
@@ -658,6 +827,12 @@ def ship_order(
         order.shipping_cost = payload.shipping_cost
     if payload.shipping_cost_currency is not None:
         order.shipping_cost_currency = payload.shipping_cost_currency
+
+    accessory_stock.consume_order(db, order)
+    for sn in db.query(SerialNumber).filter(SerialNumber.pegged_to_order_id == order.id):
+        sn.pegged_to_order_id = None
+    if conflicts:
+        accessory_stock.raise_at_risk_alerts(db, order, conflicts)
 
     order.status = "Shipped"
     db.commit()
@@ -763,6 +938,10 @@ def deliver_order(
             db.add(history)
 
     order.status = "Delivered"
+    if order.order_type == "Distribution":
+        accessory_stock.receive_ds_accessories(db, order)
+        db.flush()
+        refresh_after_transfer(db, order)  # BOM lines waiting for these components
     db.commit()
     db.refresh(order)
     return order_to_out(order, include_lines=True)
@@ -796,6 +975,14 @@ def cancel_order(
     # Remove allocated serials (serial state remains AVAILABLE, no state change needed)
     for oos in list(order.serials):
         db.delete(oos)
+
+    accessory_stock.release_order(db, order.id)
+    # Terminals ATP pegged to this order go back to the pool (else they stay blocked forever)
+    for sn in db.query(SerialNumber).filter(SerialNumber.pegged_to_order_id == order.id):
+        sn.pegged_to_order_id = None
+    for line in order.lines:
+        for ds in db.query(OutboundOrder).filter(OutboundOrder.id.in_(transfer_ds_ids(line)), OutboundOrder.status == "Draft"):
+            cancel_draft_transfer(db, ds)
 
     order.status = "Cancelled"
     db.commit()

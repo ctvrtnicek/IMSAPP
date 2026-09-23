@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import Modal from '../../components/Modal.jsx'
+import BomSupplyPanel from '../../components/BomSupplyPanel.jsx'
+import Breadcrumbs from '../../components/Breadcrumbs.jsx'
 import {
   getOutboundOrder,
   issueOrder,
@@ -51,6 +53,23 @@ const STATUS_STYLES = {
   Closed:      { backgroundColor: '#374151', color: '#fff' },
 }
 
+// ── R3 #9 BOM assembly status ────────────────────────────────────────────────
+const BOM_STATUS_STYLES = {
+  COMPLETE: { backgroundColor: '#16a34a', color: '#fff', label: 'Components complete' },
+  PARTIAL:  { backgroundColor: '#ea580c', color: '#fff', label: 'Components in transfer' },
+  PENDING:  { backgroundColor: '#dc2626', color: '#fff', label: 'Components missing' },
+}
+
+function BomStatusBadge({ status }) {
+  const st = BOM_STATUS_STYLES[status]
+  if (!st) return null
+  return (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style={st} title={`BOM ${status}`}>
+      {st.label}
+    </span>
+  )
+}
+
 function TypeBadge({ type }) {
   const style = TYPE_STYLES[type] || { backgroundColor: '#6b7280', color: '#fff' }
   return (
@@ -100,6 +119,8 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
   })
   const [shipSubmitting, setShipSubmitting] = useState(false)
   const [shipError, setShipError] = useState(null)
+  const [shipConflicts, setShipConflicts] = useState(null) // R3 #9: accessories reserved for other orders
+  const [showBomSupply, setShowBomSupply] = useState(false)
 
   // Work Order awareness
   const [activeWo, setActiveWo] = useState(null)
@@ -147,6 +168,10 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
 
   // ── Action: Run ATP ────────────────────────────────────────────────────────
   async function handleRunATP() {
+    if (order?.atp_has_run && !window.confirm(
+      'Re-run ATP?\n\nAll current plans and peggings on this order will be dropped — pegged terminals, ' +
+      'accessory reservations and draft component transfer DS — and a new plan will be created.'
+    )) return
     setAtpLoading(true); setActionError(null)
     try {
       await runATP(orderId)
@@ -243,7 +268,8 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
   async function openAllocateModal() {
     setAllocFetchError(null)
     setSelectedSerials({})
-    const firstLine = order?.lines?.[0]
+    // Start on the first line that takes serials (accessory lines are picked by quantity)
+    const firstLine = order?.lines?.find((l) => l.needs_serials !== false) || order?.lines?.[0]
     setAllocProductId('')
     setAllocLocationId('')
     setAllocLineId(firstLine?.id ? String(firstLine.id) : '')
@@ -255,9 +281,10 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
     } catch {
       // ignore
     }
-    // Pre-set product from order line
-    if (firstLine?.product_id) {
-      setAllocProductId(String(firstLine.product_id))
+    // Pre-set product from order line — for a kit, its serialised component (V400-Kit -> V400M)
+    const allocProduct = firstLine?.allocation_product_id || firstLine?.product_id
+    if (allocProduct) {
+      setAllocProductId(String(allocProduct))
     }
     // Pre-set fulfilling location: prefer line-level ATP result, then order-level
     if (firstLine?.fulfilling_location_id) {
@@ -276,7 +303,18 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
         product_id: Number(allocProductId),
         location_id: Number(allocLocationId),
       })
-      setAvailableSerials(res.data)
+      // R3 #9: this order's ATP-pegged terminals first and pre-selected; ones pegged
+      // to other open orders are shown but can't be picked
+      const rank = (s) => (s.pegged_to_order_id === order.id ? 0 : s.pegged_to_order_id ? 2 : 1)
+      const rows = [...res.data].sort((a, b) => rank(a) - rank(b))
+      setAvailableSerials(rows)
+      if (allocLineId) {
+        setSelectedSerials((prev) => {
+          const next = { ...prev }
+          rows.filter((s) => s.pegged_to_order_id === order.id).forEach((s) => { next[s.id] = Number(allocLineId) })
+          return next
+        })
+      }
     } catch {
       setAllocFetchError('Failed to load available serials')
       setAvailableSerials([])
@@ -303,7 +341,10 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
         order_line_id: Number(lineId),
       }))
 
-    if (!allocations.length) {
+    // R3 #9: an order of accessories only (e.g. a component transfer DS) is allocated
+    // without serials — its stock is already reserved and gets picked by quantity
+    const needsSerials = order?.lines?.some((l) => l.needs_serials !== false)
+    if (!allocations.length && needsSerials) {
       setAllocFetchError('Select at least one serial and assign a line')
       return
     }
@@ -324,6 +365,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
   // ── Ship Modal ─────────────────────────────────────────────────────────────
   function openShipModal() {
     setShipError(null)
+    setShipConflicts(null)
     setShipForm({
       carrier: order?.carrier || '',
       tracking_number: order?.tracking_number || '',
@@ -335,8 +377,8 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
     setShowShipModal(true)
   }
 
-  async function handleShipSubmit(e) {
-    e.preventDefault()
+  async function handleShipSubmit(e, confirmConflict = false) {
+    e?.preventDefault()
     setShipError(null)
     setShipSubmitting(true)
     const payload = {
@@ -346,13 +388,20 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
       estimated_arrival_date: shipForm.estimated_arrival_date || null,
       shipping_cost: shipForm.shipping_cost ? Number(shipForm.shipping_cost) : null,
       shipping_cost_currency: shipForm.shipping_cost_currency || null,
+      confirm_reservation_conflict: confirmConflict,
     }
     try {
       const res = await shipOrder(orderId, payload)
       setOrder(res.data)
       setShowShipModal(false)
+      setShipConflicts(null)
     } catch (err) {
-      setShipError(err.response?.data?.detail || 'Failed to ship order')
+      const detail = err.response?.data?.detail
+      if (err.response?.status === 409 && detail?.code === 'RESERVATION_CONFLICT') {
+        setShipConflicts(detail.conflicts)
+      } else {
+        setShipError(typeof detail === 'string' ? detail : 'Failed to ship order')
+      }
     } finally {
       setShipSubmitting(false)
     }
@@ -371,9 +420,22 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
 
   // ── Count allocated serials per line ──────────────────────────────────────
   function allocatedCountForLine(lineId) {
+    const line = order?.lines?.find((l) => l.id === lineId)
+    if (line && line.needs_serials === false) {
+      // R3 #9 accessory line: its stock is reserved (then consumed at shipping), not serial-allocated
+      return (order.accessory_reservations || [])
+        .filter((r) => r.order_line_id === lineId && r.status !== 'Released')
+        .reduce((n, r) => n + r.quantity, 0)
+    }
     if (!order?.allocated_serials) return 0
     return order.allocated_serials.filter((s) => s.order_line_id === lineId).length
   }
+
+  // R3 #9 — allocation dialog: accessory lines are confirmed by quantity, no serial search
+  const allocLine = order?.lines?.find((l) => String(l.id) === String(allocLineId))
+  const allocLineIsAccessory = allocLine?.needs_serials === false
+  const orderNeedsSerials = !!order?.lines?.some((l) => l.needs_serials !== false)
+  const canConfirmAllocation = Object.keys(selectedSerials).length > 0 || !orderNeedsSerials
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) return <p className="text-gray-500 text-sm">Loading...</p>
@@ -387,8 +449,9 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
         onClick={onBack}
         className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 transition"
       >
-        ← Back to Distribution Orders
+        ← Back
       </button>
+      <Breadcrumbs label={order.order_number} path={`/order/${order.order_number}`} />
 
       {/* Header section */}
       <div className="bg-white rounded-2xl shadow p-6 mb-4">
@@ -468,12 +531,13 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 Cancel
               </button>
             )}
-            {(isAdmin || isPlanner) && !['Cancelled', 'Closed'].includes(order?.status) && (
+            {(isAdmin || isPlanner) && !['Shipped', 'Delivered', 'Cancelled', 'Closed'].includes(order?.status) && (
               <button
                 onClick={handleRunATP}
-                disabled={atpLoading || actionLoading}
+                disabled={atpLoading || actionLoading || !!order?.atp_rerun_blocked_reason}
+                title={order?.atp_rerun_blocked_reason || undefined}
                 className="px-4 py-2 rounded-lg text-sm font-semibold transition"
-                style={{ backgroundColor: '#fff', border: '1px solid var(--cadet-dark)', color: 'var(--cadet-dark)', opacity: atpLoading ? 0.6 : 1 }}
+                style={{ backgroundColor: '#fff', border: '1px solid var(--cadet-dark)', color: 'var(--cadet-dark)', opacity: (atpLoading || order?.atp_rerun_blocked_reason) ? 0.45 : 1, cursor: order?.atp_rerun_blocked_reason ? 'not-allowed' : undefined }}
               >
                 {atpLoading ? 'Running ATP...' : 'Run ATP'}
               </button>
@@ -604,6 +668,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 <th className="px-3 py-2 font-semibold">Quantity</th>
                 <th className="px-3 py-2 font-semibold">Allocated</th>
                 <th className="px-3 py-2 font-semibold">ATP Status</th>
+                <th className="px-3 py-2 font-semibold">BOM</th>
                 <th className="px-3 py-2 font-semibold">EDD</th>
                 <th className="px-3 py-2 font-semibold">Fulfilling Loc</th>
               </tr>
@@ -627,6 +692,9 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                     </td>
                     <td className="px-3 py-2">
                       {line.atp_status && <ATPStatusBadge status={line.atp_status} />}
+                    </td>
+                    <td className="px-3 py-2">
+                      {line.is_bom ? <BomStatusBadge status={line.bom_assembly_status} /> : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-3 py-2 text-gray-600 text-xs">
                       {line.atp_split_details && line.atp_split_details.length > 1 ? (
@@ -661,6 +729,116 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
           <p className="text-gray-400 text-sm">No lines.</p>
         )}
       </div>
+
+      {/* R3 #9 — BOM components, reservations and component transfer orders */}
+      {(order.accessory_reservations?.length > 0 || order.kit_terminals?.length > 0 || order.lines?.some((l) => l.is_bom)) && (
+        <div className="bg-white rounded-2xl shadow p-6 mb-4">
+          <h2 className="text-sm font-semibold text-gray-600 uppercase mb-3">Components &amp; Reservations</h2>
+
+          {order.reservation_warnings?.length > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-sm text-amber-900 mb-3">
+              <p className="font-semibold">Reserved accessories are no longer fully on hand</p>
+              {order.reservation_warnings.map((w, i) => (
+                <p key={i}>
+                  {w.product_code} at {w.location_code}: {w.reserved_all_orders} reserved across orders
+                  ({w.reserved_for_this_order} for this order), only {w.on_hand} on hand — another shipment likely used them.
+                </p>
+              ))}
+            </div>
+          )}
+
+          {(order.accessory_reservations?.length > 0 || order.kit_terminals?.length > 0) && (
+            <table className="w-full text-sm mb-4">
+              <thead>
+                <tr className="text-left text-gray-500 text-xs uppercase border-b border-gray-100">
+                  <th className="px-3 py-2 font-semibold">Component / Accessory</th>
+                  <th className="px-3 py-2 font-semibold">Location</th>
+                  <th className="px-3 py-2 font-semibold">Qty</th>
+                  <th className="px-3 py-2 font-semibold">Reservation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(order.kit_terminals || []).map((k) => (
+                  <tr key={`kit-${k.product_code}-${k.location_code}`} className="border-b border-gray-50">
+                    <td className="px-3 py-2 font-medium text-gray-800">{k.product_code}</td>
+                    <td className="px-3 py-2 text-gray-600">{k.location_code}</td>
+                    <td className="px-3 py-2 text-gray-600">{k.quantity}</td>
+                    <td className="px-3 py-2 text-gray-600">{k.status}</td>
+                  </tr>
+                ))}
+                {(order.accessory_reservations || []).filter((r) => r.status !== 'Released').map((r) => (
+                  <tr key={r.id} className="border-b border-gray-50">
+                    <td className="px-3 py-2 font-medium text-gray-800">{r.product_code}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.location_code}</td>
+                    <td className="px-3 py-2 text-gray-600">{r.quantity}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {r.status}
+                      {r.incoming?.length > 0 && (
+                        <span className="text-gray-500">
+                          {' — '}
+                          {r.incoming.map(([ds, q], i) => (
+                            <span key={ds}>{i > 0 && ', '}{q} incoming on <a href={`/order/${ds}`} className="underline font-mono">{ds}</a></span>
+                          ))}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {order.lines?.some((l) => l.component_transfer_orders?.length > 0) && (
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Component Transfer Orders</p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 text-xs uppercase border-b border-gray-100">
+                    <th className="px-3 py-2 font-semibold">DS</th>
+                    <th className="px-3 py-2 font-semibold">For line</th>
+                    <th className="px-3 py-2 font-semibold">Component</th>
+                    <th className="px-3 py-2 font-semibold">From</th>
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.lines.flatMap((l) => (l.component_transfer_orders || []).map((t) => (
+                    <tr key={t.id} className="border-b border-gray-50">
+                      <td className="px-3 py-2"><a href={`/order/${t.order_number}`} className="underline font-mono">{t.order_number}</a></td>
+                      <td className="px-3 py-2 text-gray-600">{l.line_number} ({l.product_code})</td>
+                      <td className="px-3 py-2 text-gray-600">{t.quantity}x {t.product_code}</td>
+                      <td className="px-3 py-2 text-gray-600">{t.from_location_code}</td>
+                      <td className="px-3 py-2 text-gray-600">{t.status}</td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+              <p className="text-xs text-gray-400 mt-1">Auto-drafted by ATP. The Supply Planner reviews and issues them; EDD updates when they are delivered.</p>
+            </div>
+          )}
+
+          {order.lines?.some((l) => l.is_bom) && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowBomSupply((v) => !v)}
+                className="text-xs font-semibold uppercase text-gray-500 flex items-center gap-1"
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
+              >
+                {showBomSupply ? '▾' : '▸'} BOM Component Supply
+              </button>
+              {showBomSupply && (
+                <div className="mt-3">
+                  {order.lines.filter((l) => l.is_bom).map((l) => (
+                    <BomSupplyPanel key={l.id} productId={l.product_id} orderId={order.id}
+                      locationId={l.fulfilling_location_id || order.fulfilling_location_id} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ATP Reasoning (collapsible) */}
       {order.lines?.some(l => l.atp_reasoning) && (
@@ -841,7 +1019,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
 
       {/* ── Allocation Modal ─────────────────────────────────────────────────── */}
       {showAllocateModal && (
-        <Modal title="Allocate Serials" onClose={() => setShowAllocateModal(false)}>
+        <Modal title={orderNeedsSerials ? 'Allocate Serials' : 'Allocate Accessories'} onClose={() => setShowAllocateModal(false)}>
           <div className="flex flex-col gap-4">
             {allocFetchError && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
@@ -871,7 +1049,11 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
               <label className="block text-xs font-semibold text-gray-600 mb-1">Assign to Line *</label>
               <select
                 value={allocLineId}
-                onChange={(e) => setAllocLineId(e.target.value)}
+                onChange={(e) => {
+                  setAllocLineId(e.target.value)
+                  const l = order.lines.find((x) => String(x.id) === e.target.value)
+                  if (l?.allocation_product_id) setAllocProductId(String(l.allocation_product_id))
+                }}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
               >
                 <option value="">Select line...</option>
@@ -883,12 +1065,24 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
               </select>
             </div>
 
+            {allocLineIsAccessory && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-900">
+                <span className="font-semibold">{allocLine.product_code}</span> is an accessory — no serials to pick.
+                {' '}Confirming allocates <span className="font-semibold">{allocLine.quantity}</span> from{' '}
+                <span className="font-semibold">{allocLine.fulfilling_location_code || order.fulfilling_location_code}</span> stock
+                (already reserved for this order); it is picked by quantity on the work order and deducted from that
+                warehouse's inventory when the order ships.
+                {orderNeedsSerials && ' Serial lines on this order still need their serials selected.'}
+              </div>
+            )}
+
             {/* Product + Location filter */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3" style={allocLineIsAccessory ? { opacity: 0.45, pointerEvents: 'none' } : undefined}>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Product</label>
                 <select
                   value={allocProductId}
+                  disabled={allocLineIsAccessory}
                   onChange={(e) => setAllocProductId(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
                 >
@@ -902,6 +1096,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Location</label>
                 <select
                   value={allocLocationId}
+                  disabled={allocLineIsAccessory}
                   onChange={(e) => setAllocLocationId(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none"
                 >
@@ -916,10 +1111,11 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
             <button
               type="button"
               onClick={fetchAvailableSerials}
-              disabled={!allocProductId || !allocLocationId}
+              disabled={allocLineIsAccessory || !allocProductId || !allocLocationId}
               className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition self-start"
               style={{
-                backgroundColor: (!allocProductId || !allocLocationId) ? '#93c5fd' : 'var(--cadet-dark)',
+                backgroundColor: (allocLineIsAccessory || !allocProductId || !allocLocationId) ? '#cbd5e1' : 'var(--cadet-dark)',
+                cursor: allocLineIsAccessory ? 'not-allowed' : undefined,
               }}
             >
               Find Available Serials
@@ -934,19 +1130,24 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
                 <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
                   {availableSerials.map((s) => {
                     const isSelected = selectedSerials[s.id] !== undefined
+                    const peggedElsewhere = s.pegged_to_order_id && s.pegged_to_order_id !== order.id
                     return (
                       <label
                         key={s.id}
                         className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0"
+                        style={peggedElsewhere ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                       >
                         <input
                           type="checkbox"
                           checked={isSelected}
+                          disabled={!!peggedElsewhere}
                           onChange={() => toggleSerial(s.id)}
                           className="rounded"
                         />
                         <span className="font-mono text-sm text-gray-800">{s.serial_number}</span>
                         <span className="text-xs text-gray-500">{s.current_state_code}</span>
+                        {s.pegged_to_order_id === order.id && <span className="text-xs font-semibold text-green-700">pegged to this order</span>}
+                        {peggedElsewhere && <span className="text-xs text-gray-500">pegged to {s.pegged_to_order_number}</span>}
                         <span className="text-xs text-gray-400 ml-auto">{s.current_location_code}</span>
                       </label>
                     )
@@ -958,7 +1159,7 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
               </div>
             )}
 
-            {availableSerials.length === 0 && allocProductId && allocLocationId && (
+            {availableSerials.length === 0 && allocProductId && allocLocationId && !allocLineIsAccessory && (
               <p className="text-sm text-gray-400">
                 No available serials found. Use "Find Available Serials" to search.
               </p>
@@ -976,11 +1177,11 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
               <button
                 type="button"
                 onClick={handleAllocateSubmit}
-                disabled={allocSubmitting || Object.keys(selectedSerials).length === 0}
+                disabled={allocSubmitting || !canConfirmAllocation}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition"
                 style={{
                   backgroundColor:
-                    allocSubmitting || Object.keys(selectedSerials).length === 0
+                    allocSubmitting || !canConfirmAllocation
                       ? '#93c5fd'
                       : '#4f46e5',
                 }}
@@ -999,6 +1200,37 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
             {shipError && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
                 {shipError}
+              </div>
+            )}
+            {shipConflicts && (
+              <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-3 text-sm text-amber-900">
+                <p className="font-semibold mb-1">This shipment uses accessories reserved for other orders</p>
+                <ul className="list-disc pl-5 mb-2">
+                  {shipConflicts.map((c, i) => (
+                    <li key={i}>
+                      {c.this_order_takes}x {c.product_code} from {c.location_code} (on hand {c.on_hand}) —
+                      {' '}{c.shortfall_for_others} reserved for {c.affected_orders.join(', ')} will no longer be on hand
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={shipSubmitting}
+                    onClick={() => handleShipSubmit(null, true)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+                    style={{ backgroundColor: '#b45309' }}
+                  >
+                    Ship anyway (affected orders get an alert)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShipConflicts(null)}
+                    className="px-3 py-1.5 rounded-lg text-xs border border-amber-300"
+                  >
+                    Back
+                  </button>
+                </div>
               </div>
             )}
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Breadcrumbs from '../../components/Breadcrumbs.jsx'
 import {
   getRepairOrders,
   getRepairOrder,
@@ -294,8 +295,9 @@ export function RepairDetailPanel({ repairId, onBack, role }) {
         onClick={onBack}
         className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 transition"
       >
-        ← Back to Repair Orders
+        ← Back
       </button>
+      <Breadcrumbs label={order.order_number} path={`/repair/${order.order_number}`} />
 
       {/* Header card */}
       <div className="bg-white rounded-2xl shadow p-6 mb-4">

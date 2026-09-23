@@ -12,3 +12,5 @@ export const getSerialsAtLocation = (locationId, search) =>
   api.get(`/work-orders/serials-at-location/${locationId}`, { params: search ? { search } : {} })
 export const completeRechargeWO = (id, payload) => api.post(`/work-orders/${id}/complete-recharge`, payload)
 export const createRechargeWO = (payload) => api.post('/work-orders/recharge', payload)
+// R3 #9 — warehouse confirms BOM assembly done (production time calculated server-side)
+export const confirmAssembly = (id) => api.post(`/work-orders/${id}/confirm-assembly`)

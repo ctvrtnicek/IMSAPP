@@ -203,6 +203,25 @@ class NonSerialisedInventory(Base):
     location = relationship("Location")
 
 
+class AccessoryReservation(Base):
+    """R3 #9 — reservation of non-serialised stock (accessories / BOM components) for an
+    outbound order line at a location. Free stock = on hand (Available) - Reserved rows.
+    status: Reserved -> Consumed (shipped) | Released (cancelled / re-planned)."""
+    __tablename__ = "accessory_reservations"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey("outbound_orders.id"), nullable=False)
+    order_line_id = Column(Integer, ForeignKey("outbound_order_lines.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    status = Column(Text, nullable=False, default="Reserved")
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    closed_at = Column(TIMESTAMP, nullable=True)
+    order = relationship("OutboundOrder")
+    product = relationship("Product")
+    location = relationship("Location")
+
+
 class StateHistory(Base):
     __tablename__ = "state_history"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -649,10 +668,18 @@ class WorkOrder(Base):
     notes = Column(Text)
     created_by_user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    # R3 #9 — BOM assembly. started_at is set on Start; production time is
+    # assembly_confirmed_at - started_at, stored in minutes when assembly is confirmed.
+    started_at = Column(TIMESTAMP, nullable=True)
+    requires_assembly = Column(Integer, nullable=False, default=0)
+    assembly_confirmed_at = Column(TIMESTAMP, nullable=True)
+    assembly_confirmed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    production_minutes = Column(Integer, nullable=True)
     # relationships
     outbound_order = relationship("OutboundOrder")
     location = relationship("Location")
-    created_by = relationship("User")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    assembly_confirmed_by = relationship("User", foreign_keys=[assembly_confirmed_by_user_id])
     lines = relationship("WorkOrderLine", back_populates="work_order", cascade="all, delete-orphan")
 
 
@@ -665,7 +692,12 @@ class WorkOrderLine(Base):
     confirmed_serial_id = Column(Integer, ForeignKey("serial_numbers.id"), nullable=True)
     is_short_pick = Column(Integer, nullable=False, default=0)
     is_over_pick = Column(Integer, nullable=False, default=0)
+    # R3 #9 — accessory (non-serialised) pick lines: product + quantity instead of a serial
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    confirmed_quantity = Column(Integer, nullable=True)
     # relationships
+    product = relationship("Product")
     work_order = relationship("WorkOrder", back_populates="lines")
     outbound_order_line = relationship("OutboundOrderLine")
     allocated_serial = relationship("SerialNumber", foreign_keys=[allocated_serial_id])

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
+import BomSupplyPanel from '../../components/BomSupplyPanel.jsx'
 import {
   getProducts,
   createProduct,
@@ -820,6 +821,13 @@ function ProductBomTab({ productId, rows, isBom, onRefresh, form, setForm, produ
         </div>
         <button className="e2o-btn e2o-btn-primary" type="button" style={{ padding: '6px 14px', fontSize: 13 }} onClick={handleAdd}>Add Component</button>
       </div>
+      {rows.length > 0 && productId && (
+        <div style={{ marginTop: '1.25rem' }}>
+          <p style={{ margin: '0 0 .5rem', fontWeight: 600, fontSize: 13 }}>Component supply</p>
+          {/* R3 #9 — stock, reservations and incoming POs per component */}
+          <BomSupplyPanel productId={productId} key={rows.length} />
+        </div>
+      )}
     </div>
   )
 }

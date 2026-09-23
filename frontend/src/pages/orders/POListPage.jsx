@@ -191,8 +191,7 @@ export default function POListPage({ role, onViewPO, initialPoId }) {
   return (
     <div>
       {/* Header row */}
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-2xl font-bold text-gray-800">Purchase Orders</h1>
+      <div className="flex items-center justify-end mb-5">
         {canCreate && (
           <button
             onClick={openNewModal}

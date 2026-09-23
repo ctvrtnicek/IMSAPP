@@ -77,13 +77,33 @@ def _normalize_for_postgres(meta):
                     default.arg = text("'" + m.group(1).replace("'", "''") + "'")
 
 
+def _add_column_ddls(table, pg):
+    """CREATE TABLE IF NOT EXISTS never touches a table that already exists, so a column
+    added locally by a migrate_vNN.py would never reach Render's Postgres. Emit an
+    idempotent ADD COLUMN IF NOT EXISTS per column. NOT NULL is only kept when there is a
+    default to backfill existing rows with."""
+    out = []
+    for col in table.columns:
+        if col.primary_key:
+            continue
+        parts = [f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS {col.name} {col.type.compile(dialect=pg)}"]
+        sd = col.server_default
+        default = sd.arg.text if sd is not None and hasattr(sd.arg, "text") else None
+        if default is not None:
+            parts.append(f"DEFAULT {default}")
+            if not col.nullable:
+                parts.append("NOT NULL")
+        out.append(" ".join(parts) + ";")
+    return out
+
+
 def generate_sqlite_schema(eng):
     meta = MetaData()
     meta.reflect(bind=eng)
     lite = sqlite.dialect()
     ddls = [
         str(CreateTable(table, if_not_exists=True).compile(dialect=lite)).strip() + ";"
-        for table in meta.tables.values()
+        for table in sorted(meta.tables.values(), key=lambda t: t.name)  # stable output
     ]
     SQLITE_OUT_FILE.write_text(SQLITE_HEADER + "\n".join(ddls) + "\n", encoding="utf-8")
     print(f"Wrote {SQLITE_OUT_FILE} — {len(ddls)} tables")
@@ -100,13 +120,15 @@ def main():
     meta.reflect(bind=eng)
     _normalize_for_postgres(meta)
     table_ddls = []
-    for table in meta.tables.values():
+    column_ddls = []
+    for table in sorted(meta.tables.values(), key=lambda t: t.name):  # stable output
         for fk in [c for c in table.constraints if isinstance(c, ForeignKeyConstraint)]:
             table.constraints.discard(fk)
         for col in table.columns:
             col.foreign_keys = set()
         ddl = str(CreateTable(table, if_not_exists=True).compile(dialect=pg)).strip()
         table_ddls.append(ddl + ";")
+        column_ddls.extend(_add_column_ddls(table, pg))
 
     # Pass 2 — re-reflect fresh (pass 1 mutated its metadata) to get FK constraints,
     # emitted as separate ALTER TABLE statements.
@@ -137,7 +159,9 @@ def main():
             )
 
     PG_OUT_FILE.write_text(
-        PG_HEADER + "\n".join(table_ddls) + "\n\n-- Foreign Keys\n" + "\n".join(fk_ddls) + "\n",
+        PG_HEADER + "\n".join(table_ddls)
+        + "\n\n-- Columns added to existing tables (no-ops when already present)\n" + "\n".join(column_ddls)
+        + "\n\n-- Foreign Keys\n" + "\n".join(fk_ddls) + "\n",
         encoding="utf-8",
     )
     print(f"Wrote {PG_OUT_FILE} — {len(table_ddls)} tables, {len(fk_ddls)} foreign keys")

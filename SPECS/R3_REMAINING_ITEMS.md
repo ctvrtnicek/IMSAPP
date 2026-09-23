@@ -7,7 +7,7 @@ Current PRD: `SPECS/IMS - PRD v3.0 Consolidated_new.docx`. Its R3 detail section
 which is agentic work outside the 17 R3 items). `prd_appendixb.txt` is a truncated
 v2.2 extract (stops at 5.1) — don't use it for detailed specs.
 
-Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17 and #16 closed 2026-09-23.
+Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17, #16 and #9 closed 2026-09-23.
 
 ## Data visibility rule (#14 / #16 / #17) — decided 2026-09-22
 
@@ -56,12 +56,6 @@ IMS").
   PRD §5.17: chat bubble in top nav, slide-in panel, streaming, alert list/ack
   from chat, context (page + role), `AI_ASSISTANT_ENABLED` / `ANTHROPIC_API_KEY`
   in System Config.
-- **#9 — BOM Process.** PRD §5.10 answers the earlier open question: inbound =
-  components bought from different suppliers on **separate POs**, arrivals tracked
-  against the BOM product (no multi-supplier PO). Outbound is also open: `atp.py`
-  has no BOM logic; `bom_assembly_status` / `component_transfer_orders` exist on
-  order lines but nothing populates them (auto-draft component DS, EDD recalc,
-  shortage alert per missing component).
 
 ## Needs a walkthrough
 
@@ -70,6 +64,60 @@ IMS").
   identical layout. Do last, as a regression pass.
 
 ## Confirmed done (for reference — don't re-investigate these)
+
+**#9 BOM Process** — closed 2026-09-23 after Jakub's local test. Decisions
+(Jakub, 2026-09-23): consume components at shipping (physical deduction only when
+goods leave the warehouse; allocation just confirms the reservation — reconfirmed); accessories are *reserved*
+per order (free = on hand - reserved), and shipping stock reserved for other orders
+asks for confirmation + raises RESERVATION_AT_RISK; shipping more than is physically
+on hand is blocked; one auto-drafted Draft DS per component per source warehouse,
+issued by the Supply Planner; assembly lead time = longest across components; the
+Pick WO lists every BOM part (accessory qty lines) and has an Assembly section —
+"Assembly done" after Start, production time = confirm time - start time, WO can't
+complete before it. Inbound = read-only BOM Component Supply panel (stock per
+location, reserved, free, short, open POs) on BOM order detail and Products → BOM
+Config; accessory PO lines can now be received by quantity (before, PO receipt never
+touched accessory stock). Code: `backend/accessory_stock.py`, `backend/bom_planner.py`
+(called from `atp_engine.run_atp_for_order`), `migrate_v27.py`. Orders created before
+#9 have no reservations/BOM status and ship as before.
+Kits (added after Jakub's test, 2026-09-23): a BOM with a serialised component
+(V400-Kit = V400M + cable) has no serials of its own — ATP searches and pegs the
+component terminals instead, accessories are reserved as usual, terminals pegged at
+another warehouse move to the kitting warehouse on a transfer DS. Allocation
+preselects the component terminal; cable-only orders allocate without serials.
+Cancelling an order now also unpegs its terminals (they used to stay pegged).
+Allocation dialog: accessory lines are confirmed by quantity (serial search greyed
+out); cable-only orders show "Allocate Accessories" and confirm in one click.
+ATP rules agreed 2026-09-23 (after SO000027 jumped to Sacramento):
+(a) Run ATP again = drop the whole plan (unpeg, release reservations, cancel draft
+transfer DS) and plan afresh, after a confirm dialog; refused once the order is
+allocated or an ATP transfer DS was issued (`bom_planner.atp_rerun_blocker`).
+(b) search order: order's Fulfilling Location → warehouses with a Network Design flow
+to the customer (current version) → regional search. A kit on an order with a
+Fulfilling Location is assembled there; terminals found elsewhere come on a DS.
+(c) a transfer DS only counts as incoming if it goes to the current warehouse.
+(d) ATP Step 4 skips POs whose expected date has passed; PO pegs now get an EDD.
+Supply panel on an order lists only POs into that order's fulfilling warehouse.
+Known, not fixed: Step 4 PO pegging isn't persisted, so several orders can count the
+same open PO quantity (pre-existing ATP behaviour).
+Pegging vs allocation (fixed 2026-09-23): allocation ignored ATP pegs. Now the
+allocation dialog pre-selects terminals pegged to the order and blocks ones pegged to
+another open order (API refuses too); allocating pegs the terminal to the order; once
+a line is fully allocated, un-picked pegs are released; shipping clears the order's
+pegs; a delivered kit transfer DS hands the terminals that actually travelled to the
+parent order. Delivered terminals arrive RECEIVED and need goods-in (→ Available)
+before they can be allocated. One-off local clean-up unpegged terminals held by closed
+orders (SO000021, SO000029).
+UI: breadcrumb trail on all detail pages (order/DS/PO/WO/repair/return/terminal,
+`components/Breadcrumbs.jsx`, sessionStorage, reset from dashboard lists/menu);
+Components & Reservations lists kit terminals (pegged) + accessories; "← Back" on all
+detail pages.
+Note: V400M itself is also flagged BOM in master data (V400M + cable, 8 days) — that
+is why a plain V400M order shows BOM status and the supply panel.
+Also fixed along the way: `generate_pg_schema.py` now emits
+`ADD COLUMN IF NOT EXISTS` for every column (CREATE TABLE IF NOT EXISTS never added
+new columns to existing tables on Render) and sorts tables for stable output.
+Before pushing: `export_seed.py` so the two new alert rules reach Render.
 
 **#17 Warehouse Portal** — closed 2026-09-23 after Jakub's local test (Oostrum and
 Memphis users each see only their own terminals, orders, R+R). No separate portal:

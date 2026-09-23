@@ -208,10 +208,7 @@ export default function ClaimsPage({ role }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: 'var(--fs-h3)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', margin: 0 }}>
-          Claims
-        </h2>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
         {canCreate && (
           <button
             onClick={() => { setShowNew(true); setNewError(null) }}

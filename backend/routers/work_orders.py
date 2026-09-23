@@ -6,10 +6,12 @@ Endpoints:
   GET    /api/work-orders/{id}             detail
   POST   /api/work-orders/{id}/acknowledge Open → Acknowledged
   POST   /api/work-orders/{id}/start       Acknowledged → In Progress
-  POST   /api/work-orders/{id}/complete    complete with confirmed serials
+  POST   /api/work-orders/{id}/complete    complete with confirmed serials (+ accessory qty)
+  POST   /api/work-orders/{id}/confirm-assembly  BOM assembly done (production time)
   POST   /api/work-orders/{id}/cancel      cancel
 """
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -47,9 +49,16 @@ class OverPickItem(BaseModel):
     serial_id: int
 
 
+class AccessoryPickItem(BaseModel):
+    work_order_line_id: int
+    confirmed_quantity: int
+
+
 class CompletePayload(BaseModel):
     lines: List[CompleteLineItem] = []
     over_picks: List[OverPickItem] = []
+    # R3 #9: picked quantity per accessory/BOM component line (omitted = full quantity)
+    accessory_lines: List[AccessoryPickItem] = []
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +76,30 @@ def _serial_brief(sn):
     }
 
 
+def _pick_product(wol: WorkOrderLine):
+    sn = wol.allocated_serial or wol.confirmed_serial
+    if sn and sn.product:
+        return sn.product
+    return wol.outbound_order_line.product if wol.outbound_order_line else None
+
+
 def _line_to_out(wol: WorkOrderLine):
+    if wol.product_id:  # R3 #9 accessory / BOM component pick line (quantity, no serial)
+        return {
+            "id": wol.id,
+            "work_order_id": wol.work_order_id,
+            "outbound_order_line_id": wol.outbound_order_line_id,
+            "is_accessory": True,
+            "product_code": wol.product.code if wol.product else None,
+            "product_name": wol.product.name if wol.product else None,
+            "quantity": wol.quantity,
+            "confirmed_quantity": wol.confirmed_quantity,
+            "is_short_pick": bool(wol.is_short_pick),
+            "is_over_pick": False,
+            "allocated_serial": None,
+            "confirmed_serial": None,
+            "line_number": wol.outbound_order_line.line_number if wol.outbound_order_line else None,
+        }
     return {
         "id": wol.id,
         "work_order_id": wol.work_order_id,
@@ -76,9 +108,9 @@ def _line_to_out(wol: WorkOrderLine):
         "confirmed_serial": _serial_brief(wol.confirmed_serial),
         "is_short_pick": bool(wol.is_short_pick),
         "is_over_pick": bool(wol.is_over_pick),
-        # product info from the OOL
-        "product_code": wol.outbound_order_line.product.code if wol.outbound_order_line and wol.outbound_order_line.product else None,
-        "product_name": wol.outbound_order_line.product.name if wol.outbound_order_line and wol.outbound_order_line.product else None,
+        # product info: the serial's own product (a kit line picks its component terminals), else the OOL's
+        "product_code": _pick_product(wol).code if _pick_product(wol) else None,
+        "product_name": _pick_product(wol).name if _pick_product(wol) else None,
         "line_number": wol.outbound_order_line.line_number if wol.outbound_order_line else None,
     }
 
@@ -98,6 +130,11 @@ def _wo_to_out(wo: WorkOrder, include_lines=False):
         "notes": wo.notes,
         "created_at": wo.created_at.isoformat() if wo.created_at else None,
         "created_by": wo.created_by.username if wo.created_by else None,
+        "started_at": wo.started_at.isoformat() if wo.started_at else None,
+        "requires_assembly": bool(wo.requires_assembly),
+        "assembly_confirmed_at": wo.assembly_confirmed_at.isoformat() if wo.assembly_confirmed_at else None,
+        "assembly_confirmed_by": wo.assembly_confirmed_by.username if wo.assembly_confirmed_by else None,
+        "production_minutes": wo.production_minutes,
     }
     if include_lines:
         out["lines"] = [_line_to_out(l) for l in wo.lines]
@@ -205,6 +242,7 @@ def start_work_order(
     if wo.status != "Acknowledged":
         raise HTTPException(status_code=400, detail=f"Cannot start WO in status '{wo.status}'")
     wo.status = "In Progress"
+    wo.started_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(wo)
     return _wo_to_out(wo, include_lines=True)
@@ -239,9 +277,21 @@ def complete_work_order(
         raise HTTPException(status_code=404, detail="Work order not found")
     if wo.status not in ("Open", "Acknowledged", "In Progress"):
         raise HTTPException(status_code=400, detail=f"Cannot complete WO in status '{wo.status}'")
+    if wo.requires_assembly and not wo.assembly_confirmed_at:
+        raise HTTPException(status_code=400, detail="Confirm 'Assembly done' before completing this work order")
 
     # Build line lookup
     line_map = {wol.id: wol for wol in wo.lines}
+
+    # R3 #9: accessory / BOM component quantities (default: picked in full)
+    picked = {a.work_order_line_id: a.confirmed_quantity for a in payload.accessory_lines}
+    for wol in wo.lines:
+        if wol.product_id:
+            qty = picked.get(wol.id, wol.quantity)
+            if qty < 0:
+                raise HTTPException(status_code=400, detail="Picked quantity cannot be negative")
+            wol.confirmed_quantity = qty
+            wol.is_short_pick = 1 if qty < (wol.quantity or 0) else 0
 
     # Process confirmations
     for item in payload.lines:
@@ -328,6 +378,40 @@ def complete_work_order(
         db.add(new_oos)
 
     wo.status = "Complete"
+    db.commit()
+    db.refresh(wo)
+    return _wo_to_out(wo, include_lines=True)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/work-orders/{id}/confirm-assembly   (R3 #9)
+# ---------------------------------------------------------------------------
+
+@router.post("/{wo_id}/confirm-assembly")
+def confirm_assembly(
+    wo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    """Warehouse confirms the BOM assembly is done. Production time = now - WO start."""
+    roles = set(getattr(current_user, "roles_list", None) or [current_user.role])
+    if not roles & {"admin", "warehouse_user"}:
+        raise HTTPException(status_code=403, detail="warehouse_user or admin only")
+    wo = scope.apply(db.query(WorkOrder), scope.work_order_filter).filter(WorkOrder.id == wo_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if not wo.requires_assembly:
+        raise HTTPException(status_code=400, detail="This work order has no BOM assembly")
+    if wo.status != "In Progress" or not wo.started_at:
+        raise HTTPException(status_code=400, detail="Start the work order before confirming assembly")
+    if wo.assembly_confirmed_at:
+        raise HTTPException(status_code=400, detail="Assembly already confirmed")
+    now = datetime.now(timezone.utc)
+    started = wo.started_at if wo.started_at.tzinfo else wo.started_at.replace(tzinfo=timezone.utc)
+    wo.assembly_confirmed_at = now
+    wo.assembly_confirmed_by_user_id = current_user.id
+    wo.production_minutes = max(0, round((now - started).total_seconds() / 60))
     db.commit()
     db.refresh(wo)
     return _wo_to_out(wo, include_lines=True)

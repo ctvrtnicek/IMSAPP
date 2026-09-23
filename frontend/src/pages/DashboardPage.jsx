@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getAlertSummary } from '../api/alerts.js'
 import { getAgentStatus } from '../api/agents.js'
 import { LocationProvider, useLocationFilter } from '../context/LocationContext.jsx'
+import { clearBreadcrumbs } from '../components/Breadcrumbs.jsx'
 import LocationsPage from './master-data/LocationsPage.jsx'
 import SuppliersPage from './master-data/SuppliersPage.jsx'
 import ProductsPage from './master-data/ProductsPage.jsx'
@@ -386,7 +387,11 @@ function DashboardPageInner({ auth, setAuth }) {
     sessionStorage.setItem('dash_nav', navId)
   }
 
+  // Opening something from a list or the menu starts a new breadcrumb trail
+  useEffect(() => { clearBreadcrumbs() }, [])
+
   function handleNavChange(id) {
+    clearBreadcrumbs()
     if (id === 'supplier-portal') {   // separate full-page portal, not a dashboard section
       navigate('/supplier-portal')
       return

@@ -129,6 +129,36 @@ class ATPContext:
             ids.insert(0, self.customer_region_id)
         return ids
 
+    # (R3 #9 follow-up) Where to look first. Set per order by set_preferred().
+    preferred_label = None
+    preferred_ids: List[int] = []
+
+    def set_preferred(self, order: OutboundOrder):
+        """1. the order's Fulfilling Location, if set;
+        2. else warehouses with a supply flow to the customer in the current Network Design;
+        3. else nothing — the regional search applies."""
+        self.preferred_label, self.preferred_ids = None, []
+        if order.fulfilling_location_id:
+            self.preferred_label, self.preferred_ids = "Order fulfilling location", [order.fulfilling_location_id]
+            return
+        if self.customer and self.flows:
+            cust_loc = self.db.query(Location).filter(Location.code == self.customer.customer_ref).first()
+            if cust_loc:
+                ids = [f.from_location_id for f in self.flows
+                       if f.to_location_id == cust_loc.id and f.from_location_id and f.from_location_id in self.locations]
+                if ids:
+                    self.preferred_label, self.preferred_ids = "Network Design flow to customer", list(dict.fromkeys(ids))
+
+    def search_groups(self):
+        """(label, location_ids) in search order: preferred locations first, then regions."""
+        groups = []
+        if self.preferred_ids:
+            groups.append((self.preferred_label, list(self.preferred_ids)))
+        for region_id in self.region_ids_sorted:
+            ids = [lid for lid in self.locations_by_region.get(region_id, []) if lid not in self.preferred_ids]
+            groups.append((f"Region {region_id}", ids))
+        return groups
+
     def get_transit_days(self, from_loc_id: int, to_loc_id: int) -> int:
         """Get transit lead time between two locations."""
         return self.transit_map.get((from_loc_id, to_loc_id), 14)  # default 14 days
@@ -153,15 +183,17 @@ def run_atp_check(
     product_code = line.product.code if line.product else f"ID:{product_id}"
     result.reasoning.append(f"ATP search for {product_code}, qty needed: {qty_needed}")
     result.reasoning.append(f"Customer region: {ctx.customer_region_id}, search order: {ctx.region_ids_sorted}")
+    if ctx.preferred_ids:
+        result.reasoning.append(f"{ctx.preferred_label}: {[ctx.locations[l].code for l in ctx.preferred_ids if l in ctx.locations]} searched first")
+    po_pegs = []  # (location_id, qty, expected_date) pegged against issued POs (Step 4)
 
-    for region_id in ctx.region_ids_sorted:
-        location_ids = ctx.locations_by_region.get(region_id, [])
+    for group_label, location_ids in ctx.search_groups():
         loc_names = [ctx.locations[lid].code for lid in location_ids if lid in ctx.locations]
         if not location_ids:
-            result.reasoning.append(f"Region {region_id}: no locations mapped — skipped")
+            result.reasoning.append(f"{group_label}: no locations mapped — skipped")
             continue
 
-        result.reasoning.append(f"Region {region_id}: searching {loc_names}")
+        result.reasoning.append(f"{group_label}: searching {loc_names}")
 
         # Step 1: Available stock at regional locations
         if qty_found < qty_needed and ctx.available_state_ids[0]:
@@ -244,13 +276,20 @@ def run_atp_check(
                 .all()
             )
             po_found = 0
+            today_iso = date.today().isoformat()
             for pl in po_lines:
+                expected = pl.po.expected_arrival_date if pl.po else None
+                if expected and str(expected)[:10] < today_iso:
+                    result.reasoning.append(
+                        f"  Step 4: skipped {pl.po.po_number} — expected {expected} is overdue")
+                    continue
                 remaining_on_po = pl.qty_ordered - pl.qty_expected
                 can_peg = min(remaining_on_po, qty_needed - qty_found)
                 if can_peg > 0:
                     qty_found += can_peg
                     po_found += can_peg
                     result.pegged_po_id = pl.po_id
+                    po_pegs.append((pl.po.destination_location_id, can_peg, expected))
                     if not result.fulfilling_location_id:
                         po = db.query(PurchaseOrder).filter(PurchaseOrder.id == pl.po_id).first()
                         if po:
@@ -289,6 +328,18 @@ def run_atp_check(
         })
         result.reasoning.append(f"Split: {qty} from {loc_code}, EDD {loc_edd} (transit {transit} days)")
 
+    # PO pegs (Step 4): available once the PO arrives, then transit to the customer
+    for loc_id, qty, expected in po_pegs:
+        loc_code = ctx.locations[loc_id].code if loc_id in ctx.locations else "?"
+        transit = ctx.get_transit_days(loc_id, destination_location_id or loc_id)
+        arrives = date.fromisoformat(str(expected)[:10]) if expected else date.today()
+        loc_edd = (max(arrives, date.today()) + timedelta(days=transit)).isoformat()
+        result.split_details.append({
+            "location_id": loc_id, "location_code": loc_code, "qty": qty,
+            "edd": loc_edd, "transit_days": transit, "source": "PO",
+        })
+        result.reasoning.append(f"Split: {qty} on PO to {loc_code} (expected {expected or '—'}), EDD {loc_edd}")
+
     # Overall EDD = latest of all split EDDs
     if result.split_details:
         result.edd = max(d["edd"] for d in result.split_details)
@@ -320,12 +371,26 @@ def run_atp_for_order(db: Session, order_id: int) -> Dict[int, ATPResult]:
     if not order:
         return {}
 
+    # Re-run = fresh plan: drop this order's pegs, reservations and draft transfer DS
+    # (callers check atp_rerun_blocker first — see bom_planner)
+    from bom_planner import reset_plan
+    reset_plan(db, order)
+
     ctx = ATPContext(db, order.customer_id)
+    ctx.set_preferred(order)
     destination_id = order.destination_location_id
 
     results = {}
     for line in order.lines:
-        atp = run_atp_check(db, order, line, ctx, destination_id)
+        if line.product and not line.product.serialised:
+            continue  # accessories: planned against free stock in bom_planner.plan_order
+        from bom_planner import kit_serial_components, run_kit_atp
+        kit_comps = kit_serial_components(db, line.product_id) if line.product and line.product.is_bom else []
+        if kit_comps:
+            # Kit (e.g. V400-Kit = V400M + cable): no serials of its own — search its terminals
+            atp = run_kit_atp(db, order, line, ctx, destination_id, kit_comps)
+        else:
+            atp = run_atp_check(db, order, line, ctx, destination_id)
 
         # Apply results to line
         line.fulfilling_location_id = atp.fulfilling_location_id
@@ -343,6 +408,17 @@ def run_atp_for_order(db: Session, order_id: int) -> Dict[int, ATPResult]:
                     serial.pegged_to_order_id = order.id
 
         results[line.id] = atp
+
+    # R3 #9 — BOM components + accessory lines: reservations, transfer DS, EDD
+    from bom_planner import plan_order
+    plan_order(db, order, ctx)
+    for line in order.lines:
+        if line.id in results:
+            results[line.id].edd = line.edd          # BOM assembly/transfer time added
+        else:
+            acc = ATPResult()
+            acc.status, acc.fulfilling_location_id, acc.edd = line.atp_status, line.fulfilling_location_id, line.edd
+            results[line.id] = acc
 
     # Update order-level ATP fields
     statuses = [r.status for r in results.values()]
@@ -371,47 +447,3 @@ def get_alternative_products(db: Session, product_id: int) -> list:
         .all()
     )
     return [a.alternative_product_id for a in alts]
-
-
-def check_bom_availability(
-    db: Session,
-    order: OutboundOrder,
-    line: OutboundOrderLine,
-    ctx: ATPContext,
-) -> Tuple[str, List[int]]:
-    """
-    Check if all BOM components are available for a BOM product.
-    Returns (status, list_of_auto_drafted_ds_ids).
-    """
-    from models import Product
-    product = db.query(Product).filter(Product.id == line.product_id).first()
-    if not product or not product.is_bom:
-        return ("COMPLETE", [])
-
-    components = db.query(ProductBomComponent).filter(
-        ProductBomComponent.parent_product_id == line.product_id
-    ).all()
-
-    if not components:
-        return ("COMPLETE", [])
-
-    all_available = True
-    ds_ids = []
-    warehouse_id = order.fulfilling_location_id or order.destination_location_id
-
-    for comp in components:
-        qty_needed = comp.quantity * line.quantity
-        # Check available at fulfilling warehouse
-        available = db.query(SerialNumber).filter(
-            SerialNumber.product_id == comp.component_product_id,
-            SerialNumber.current_state_id == ctx.available_state_ids[0],
-            SerialNumber.current_location_id == warehouse_id,
-            SerialNumber.active == 1,
-            SerialNumber.pegged_to_order_id.is_(None),
-        ).count() if ctx.available_state_ids[0] else 0
-
-        if available < qty_needed:
-            all_available = False
-
-    status = "COMPLETE" if all_available else "PARTIAL"
-    return (status, ds_ids)

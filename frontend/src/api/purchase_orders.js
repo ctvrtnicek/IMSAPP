@@ -16,3 +16,5 @@ export const uploadDocumentForExtraction = (poId, file) => {
   const fd = new FormData(); fd.append('file', file)
   return api.post(`/purchase-orders/${poId}/upload-document`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
 }
+// R3 #9 — receive a quantity on a non-serialised (accessory) PO line
+export const receiveAccessory = (poId, data) => api.post(`/purchase-orders/${poId}/receive-accessory`, data)

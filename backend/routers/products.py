@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from auth import get_current_user
 from database import get_db
+from scoping import Scope, get_scope
 from models import (
     Product, User, ProductPricing, ProductAlternative, ProductBomComponent, Firmware
 )
@@ -347,6 +348,120 @@ def _bom_out(b: ProductBomComponent) -> BomComponentOut:
         assembly_leadtime_value=b.assembly_leadtime_value,
         assembly_leadtime_unit=b.assembly_leadtime_unit,
     )
+
+
+STAGING_CODES = ("QUARANTINE", "STAGING", "CONFIGURING")  # ATP Step 2 — usable after goods-in
+
+
+def _serial_stock_by_location(db: Session, product_id: int, order_id: Optional[int] = None) -> list:
+    """Serialised component (kit terminal) per location: 'on_hand' = AVAILABLE,
+    'staging' = in QUARANTINE/STAGING/CONFIGURING (ATP can peg those too), 'reserved' =
+    pegged to an order, 'this_order' = pegged to order_id, 'free' = unpegged AVAILABLE."""
+    from models import SerialNumber, TerminalState
+    rows = (
+        db.query(SerialNumber.current_location_id, TerminalState.code, SerialNumber.pegged_to_order_id)
+        .join(TerminalState, TerminalState.id == SerialNumber.current_state_id)
+        .filter(SerialNumber.product_id == product_id, SerialNumber.active == 1,
+                TerminalState.code.in_(("AVAILABLE",) + STAGING_CODES))
+        .all()
+    )
+    by_loc = {}
+    for lid, code, peg in rows:
+        if lid is None:
+            continue
+        r = by_loc.setdefault(lid, {"location_id": lid, "on_hand": 0, "staging": 0, "reserved": 0,
+                                    "this_order": 0, "free": 0, "short": 0})
+        r["on_hand" if code == "AVAILABLE" else "staging"] += 1
+        if peg:
+            r["reserved"] += 1
+            if order_id and peg == order_id:
+                r["this_order"] += 1
+        elif code == "AVAILABLE":
+            r["free"] += 1
+    return list(by_loc.values())
+
+
+@router.get("/{product_id}/bom-supply")
+def bom_supply(
+    product_id: int,
+    location_id: Optional[int] = None,   # order context: only POs into this warehouse
+    order_id: Optional[int] = None,      # order context: highlight what is held for this order
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    """R3 #9 (PRD §5.10 inbound) — per BOM component: stock per location (on hand /
+    reserved / free / short) and open purchase order lines still to arrive. Components are
+    bought on their own POs from their own suppliers; this tracks them against the BOM."""
+    import accessory_stock
+    from models import Location, PurchaseOrder, PurchaseOrderLine
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(404, "Product not found")
+    comps = accessory_stock.bom_components(db, product_id)
+    po_loc = db.query(Location).filter(Location.id == location_id).first() if location_id else None
+    out = []
+    for c in comps:
+        if c.component and c.component.serialised:
+            stock = _serial_stock_by_location(db, c.component_product_id, order_id)
+        else:
+            stock = accessory_stock.stock_by_location(db, c.component_product_id)
+            if order_id:
+                mine = {}
+                for r in accessory_stock.order_reservations(db, order_id):
+                    if r.status == "Reserved" and r.product_id == c.component_product_id:
+                        mine[r.location_id] = mine.get(r.location_id, 0) + r.quantity
+                for row in stock:
+                    row["this_order"] = mine.get(row["location_id"], 0)
+        if not scope.unrestricted:
+            stock = [r for r in stock if r["location_id"] in scope.location_ids]
+        locs = {l.id: l for l in db.query(Location).filter(Location.id.in_([r["location_id"] for r in stock])).all()} if stock else {}
+        for r in stock:
+            r["location_code"] = locs[r["location_id"]].code if r["location_id"] in locs else None
+        po_q = (
+            db.query(PurchaseOrderLine, PurchaseOrder)
+            .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderLine.po_id)
+            .filter(
+                PurchaseOrderLine.product_id == c.component_product_id,
+                PurchaseOrder.status.in_(["Draft", "Issued", "Partially Received"]),
+                PurchaseOrderLine.qty_received < PurchaseOrderLine.qty_ordered,
+            )
+        )
+        po_q = scope.apply(po_q, scope.po_filter)
+        if location_id:
+            po_q = po_q.filter(PurchaseOrder.destination_location_id == location_id)
+        open_pos = [
+            {
+                "po_id": po.id,
+                "po_number": po.po_number,
+                "status": po.status,
+                "supplier_name": po.supplier.name if po.supplier else None,
+                "destination_code": po.destination_location.code if po.destination_location else None,
+                "qty_open": pl.qty_ordered - (pl.qty_received or 0),
+                "expected_arrival_date": po.expected_arrival_date,
+            }
+            for pl, po in po_q.order_by(PurchaseOrder.expected_arrival_date).all()
+        ]
+        out.append({
+            "component_product_id": c.component_product_id,
+            "component_code": c.component.code if c.component else None,
+            "component_name": c.component.name if c.component else None,
+            "serialised": bool(c.component.serialised) if c.component else False,
+            "quantity_per_unit": c.quantity,
+            "assembly_leadtime_value": c.assembly_leadtime_value,
+            "assembly_leadtime_unit": c.assembly_leadtime_unit,
+            "stock": sorted(stock, key=lambda r: -r["on_hand"]),
+            "totals": {k: sum(r.get(k, 0) for r in stock) for k in ("on_hand", "staging", "reserved", "this_order", "free", "short")},
+            "open_purchase_orders": open_pos,
+        })
+    return {
+        "product_id": product.id,
+        "product_code": product.code,
+        "is_bom": bool(product.is_bom),
+        "assembly_days": accessory_stock.assembly_days(comps),
+        "po_location_code": po_loc.code if po_loc else None,
+        "components": out,
+    }
 
 
 @router.get("/{product_id}/bom", response_model=List[BomComponentOut])

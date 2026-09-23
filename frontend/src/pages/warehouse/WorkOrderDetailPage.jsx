@@ -7,8 +7,10 @@ import {
   reverseWorkOrder,
   getSerialsAtLocation,
   completeRechargeWO,
+  confirmAssembly,
 } from '../../api/work_orders.js'
 import AppShell from '../../components/AppShell.jsx'
+import Breadcrumbs from '../../components/Breadcrumbs.jsx'
 
 const STATUS_COLOURS = {
   Open:          { bg: '#dbeafe', color: '#1d4ed8' },
@@ -26,6 +28,13 @@ function StatusBadge({ status }) {
 function fmtDate(iso) {
   if (!iso) return '—'
   return iso.slice(0, 16).replace('T', ' ') + ' UTC'
+}
+
+// R3 #9 — production time (minutes) as "2 h 05 min"
+function fmtMinutes(m) {
+  if (m == null) return '—'
+  const h = Math.floor(m / 60)
+  return h ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +148,10 @@ export default function WorkOrderDetailPage() {
         // Initialise confirmations — pre-fill confirmed with allocated if not yet confirmed
         const init = {}
         for (const line of r.data.lines || []) {
+          if (line.is_accessory) {
+            init[line.id] = { picked_qty: line.confirmed_quantity ?? line.quantity }
+            continue
+          }
           init[line.id] = {
             confirmed_serial_id:     line.confirmed_serial?.id             ?? line.allocated_serial?.id             ?? null,
             confirmed_serial_number: line.confirmed_serial?.serial_number  ?? line.allocated_serial?.serial_number  ?? '',
@@ -197,14 +210,21 @@ export default function WorkOrderDetailPage() {
       action(() => completeRechargeWO(wo.id, { serial_ids }))
       return
     }
-    const lines = Object.entries(confirmations).map(([wolId, c]) => ({
-      work_order_line_id: parseInt(wolId),
-      confirmed_serial_id: c.short_pick ? null : c.confirmed_serial_id,
+    const accessoryIds = new Set((wo.lines || []).filter((l) => l.is_accessory).map((l) => l.id))
+    const lines = Object.entries(confirmations)
+      .filter(([wolId]) => !accessoryIds.has(parseInt(wolId)))
+      .map(([wolId, c]) => ({
+        work_order_line_id: parseInt(wolId),
+        confirmed_serial_id: c.short_pick ? null : c.confirmed_serial_id,
+      }))
+    const accessory_lines = [...accessoryIds].map((id) => ({
+      work_order_line_id: id,
+      confirmed_quantity: Number(confirmations[id]?.picked_qty ?? 0),
     }))
     const over_picks = overPicks
       .filter((op) => op.serial_id && op.outbound_order_line_id)
       .map((op) => ({ outbound_order_line_id: op.outbound_order_line_id, serial_id: op.serial_id }))
-    action(() => completeWorkOrder(wo.id, { lines, over_picks }))
+    action(() => completeWorkOrder(wo.id, { lines, over_picks, accessory_lines }))
   }
 
   const isEditable = wo && ['Open', 'Acknowledged', 'In Progress'].includes(wo.status)
@@ -230,6 +250,7 @@ export default function WorkOrderDetailPage() {
   return (
     <AppShell title={`Work Order — ${wo.order_number}`} onBack={goBack} backLabel="← WO List">
       <main style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
+        <Breadcrumbs label={wo.order_number} path={`/work-order/${wo.order_number}`} />
 
         {/* Header card */}
         <div className="e2o-card" style={{ padding: '1.5rem 2rem', marginBottom: '1.5rem' }}>
@@ -366,6 +387,33 @@ export default function WorkOrderDetailPage() {
               <tbody>
                 {(wo.lines || []).map((line, idx) => {
                   const conf = confirmations[line.id] || {}
+                  if (line.is_accessory) {
+                    // R3 #9 — accessory / BOM component: pick a quantity, no serial
+                    return (
+                      <tr key={line.id}>
+                        <td style={{ color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{line.line_number ?? idx + 1}</td>
+                        <td><strong>{line.product_code}</strong> <span style={{ color: 'var(--fg-3)' }}>{line.product_name}</span></td>
+                        <td>Qty to pick: <strong>{line.quantity}</strong></td>
+                        <td>
+                          {isEditable ? (
+                            <input
+                              type="number"
+                              min="0"
+                              max={line.quantity}
+                              value={conf.picked_qty ?? ''}
+                              onChange={(e) => setConfirmations((prev) => ({ ...prev, [line.id]: { picked_qty: e.target.value } }))}
+                              style={{ width: 80, padding: '4px 8px', border: '1px solid var(--border-1)', borderRadius: 6 }}
+                            />
+                          ) : (
+                            <span style={{ fontWeight: 'var(--fw-semibold)', color: line.is_short_pick ? '#b45309' : 'var(--cadet-dark)' }}>
+                              Picked {line.confirmed_quantity ?? '—'}{line.is_short_pick ? ' (short)' : ''}
+                            </span>
+                          )}
+                        </td>
+                        {isEditable && <td style={{ color: 'var(--fg-muted)', fontSize: '0.8rem' }}>enter qty</td>}
+                      </tr>
+                    )
+                  }
                   return (
                     <tr key={line.id} style={conf.short_pick ? { opacity: 0.5 } : {}}>
                       <td style={{ color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>{line.line_number ?? idx + 1}</td>
@@ -411,6 +459,37 @@ export default function WorkOrderDetailPage() {
             </table>
           </div>
         </div>
+        )}
+
+        {/* R3 #9 — BOM assembly: warehouse confirms it is done; production time = confirm - start */}
+        {wo.requires_assembly && (
+          <div className="e2o-card" style={{ padding: '1rem 1.5rem', marginBottom: '1.5rem' }}>
+            <h2 style={{ fontWeight: 'var(--fw-bold)', fontSize: 'var(--fs-h3)', color: 'var(--fg-1)', margin: '0 0 0.75rem' }}>
+              Assembly
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '1.25rem', marginBottom: '0.75rem' }}>
+              {[
+                ['Started', fmtDate(wo.started_at)],
+                ['Assembly done', wo.assembly_confirmed_at ? `${fmtDate(wo.assembly_confirmed_at)}${wo.assembly_confirmed_by ? ` · ${wo.assembly_confirmed_by}` : ''}` : '—'],
+                ['Production time', fmtMinutes(wo.production_minutes)],
+              ].map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span className="e2o-eyebrow">{label}</span>
+                  <span style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--fg-1)', fontSize: 'var(--fs-body)' }}>{val}</span>
+                </div>
+              ))}
+            </div>
+            {!wo.assembly_confirmed_at && wo.status === 'In Progress' && (
+              <button className="e2o-btn e2o-btn-primary" onClick={() => action(() => confirmAssembly(wo.id))} disabled={busy}>
+                Assembly done
+              </button>
+            )}
+            {!wo.assembly_confirmed_at && wo.status !== 'In Progress' && isEditable && (
+              <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--fs-body-sm)', margin: 0 }}>
+                Start the work order, pick all BOM parts and assemble — then confirm "Assembly done". The work order can only be completed after that.
+              </p>
+            )}
+          </div>
         )}
 
         {/* Over-picks section (non-Recharge WOs only) */}

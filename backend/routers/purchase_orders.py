@@ -67,6 +67,7 @@ def po_line_to_out(line: PurchaseOrderLine) -> dict:
         "product_id": line.product_id,
         "product_code": line.product.code if line.product else None,
         "product_name": line.product.name if line.product else None,
+        "serialised": bool(line.product.serialised) if line.product else True,
         "qty_ordered": line.qty_ordered,
         "qty_expected": line.qty_expected,
         "qty_received": line.qty_received,
@@ -528,6 +529,53 @@ class ReceiveSerialItem(PydanticBaseModel):
 
 class ReceiveDialogPayload(PydanticBaseModel):
     items: List[ReceiveSerialItem]
+
+
+class ReceiveAccessoryPayload(PydanticBaseModel):
+    po_line_id: int
+    quantity: int
+
+
+@router.post("/{po_id}/receive-accessory")
+def receive_accessory(
+    po_id: int,
+    payload: ReceiveAccessoryPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    """R3 #9 — receive a quantity of a non-serialised PO line (accessory / BOM component)
+    into Available stock at the PO's destination warehouse."""
+    from datetime import datetime, timezone
+    from accessory_stock import _adjust_stock
+    ALLOWED = {"admin", "supply_planner", "warehouse_user", "inbound_specialist"}
+    if not set(getattr(current_user, "roles_list", [current_user.role])) & ALLOWED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to receive PO lines")
+    po = scope.apply(db.query(PurchaseOrder), scope.po_filter).filter(PurchaseOrder.id == po_id).first()
+    if not po:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PO not found")
+    if po.status not in ("Issued", "Partially Received"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot receive on a PO in status '{po.status}'")
+    line = next((l for l in po.lines if l.id == payload.po_line_id), None)
+    if not line:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PO line not found")
+    if line.product and line.product.serialised:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Serialised products are received by serial")
+    open_qty = line.qty_ordered - (line.qty_received or 0)
+    if payload.quantity <= 0 or payload.quantity > open_qty:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Quantity must be between 1 and {open_qty}")
+
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    line.qty_received = (line.qty_received or 0) + payload.quantity
+    line.received_date = today
+    _adjust_stock(db, line.product_id, po.destination_location_id, payload.quantity)
+    if not po.received_date:
+        po.received_date = today
+    db.flush()
+    po.status = recalculate_po_status(po)
+    db.commit()
+    db.refresh(po)
+    return po_to_out(po, include_lines=True)
 
 
 @router.post("/{po_id}/receive-dialog")

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Modal from '../../components/Modal.jsx'
+import Breadcrumbs from '../../components/Breadcrumbs.jsx'
 import {
   getPO,
   issuePO,
@@ -7,6 +8,7 @@ import {
   receiveDialog,
   reverseReceive,
   importSerials,
+  receiveAccessory,
   getPOSerials,
 } from '../../api/purchase_orders.js'
 import { listClaims, createClaim, listClaimTypes, uploadClaimAttachment } from '../../api/claims.js'
@@ -295,6 +297,21 @@ export default function PODetailPage({ poId, role, onBack }) {
     }
   }
 
+  // R3 #9 — accessory / BOM component lines are received by quantity, not serial
+  const [accReceiveQty, setAccReceiveQty] = useState({})
+  async function handleReceiveAccessory(line) {
+    const qty = Number(accReceiveQty[line.id] || 0)
+    if (!qty) return
+    setActionError(null)
+    try {
+      await receiveAccessory(poId, { po_line_id: line.id, quantity: qty })
+      setAccReceiveQty((p) => ({ ...p, [line.id]: '' }))
+      await loadPO()
+    } catch (e) {
+      setActionError(e.response?.data?.detail || 'Failed to receive quantity')
+    }
+  }
+
   async function handleReceiveAll() {
     setActionError(null)
     setActionLoading(true)
@@ -364,7 +381,7 @@ export default function PODetailPage({ poId, role, onBack }) {
     return (
       <div>
         <button onClick={onBack} className="text-blue-600 text-sm mb-4 hover:underline">
-          ← Back to POs
+          ← Back
         </button>
         <p className="text-red-500 text-sm">{error || 'PO not found'}</p>
       </div>
@@ -390,8 +407,9 @@ export default function PODetailPage({ poId, role, onBack }) {
         onClick={onBack}
         className="text-blue-600 text-sm mb-5 hover:underline flex items-center gap-1"
       >
-        ← Back to POs
+        ← Back
       </button>
+      <Breadcrumbs label={po.po_number} path={`/po/${po.po_number}`} />
 
       {/* Header */}
       <div className="bg-white rounded-2xl shadow p-6 mb-5">
@@ -541,6 +559,28 @@ export default function PODetailPage({ poId, role, onBack }) {
                   <td className="px-4 py-3 text-gray-600 text-xs">{line.price_currency || '—'}</td>
                   <td className="px-4 py-3">
                     <ProgressBar received={line.qty_received} ordered={line.qty_ordered} />
+                    {!line.serialised && ['Issued', 'Partially Received'].includes(po.status) && line.qty_received < line.qty_ordered && (
+                      <div className="flex items-center gap-1 mt-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max={line.qty_ordered - line.qty_received}
+                          placeholder="Qty"
+                          value={accReceiveQty[line.id] ?? ''}
+                          onChange={(e) => setAccReceiveQty((p) => ({ ...p, [line.id]: e.target.value }))}
+                          className="border border-gray-300 rounded px-2 py-1 text-xs"
+                          style={{ width: 64 }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleReceiveAccessory(line)}
+                          className="px-2 py-1 rounded text-xs font-semibold text-white"
+                          style={{ backgroundColor: 'var(--cadet-dark)' }}
+                        >
+                          Receive
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

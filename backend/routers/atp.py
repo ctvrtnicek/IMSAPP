@@ -121,7 +121,12 @@ def run_atp(order_id: int, db: Session = Depends(get_db), current_user: User = D
     order = db.query(OutboundOrder).filter(OutboundOrder.id == order_id).first()
     if not order:
         raise HTTPException(404, "Order not found")
+    from bom_planner import atp_rerun_blocker
+    blocker = atp_rerun_blocker(db, order)
+    if blocker:
+        raise HTTPException(409, blocker)
 
+    # Drops the previous plan (pegs, reservations, draft transfer DS) and plans afresh
     results = run_atp_for_order(db, order_id)
 
     return {

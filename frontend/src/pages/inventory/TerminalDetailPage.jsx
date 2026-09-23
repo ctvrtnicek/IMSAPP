@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getSerialDetail } from '../../api/inventory.js'
 import AppShell from '../../components/AppShell.jsx'
+import Breadcrumbs from '../../components/Breadcrumbs.jsx'
 
 const BRAND_COLOR = 'var(--cadet-dark)'
 
@@ -123,6 +124,7 @@ export default function TerminalDetailPage() {
   return (
     <AppShell title={serial ? `Terminal Detail — ${serial.serial_number}` : 'Terminal Detail'}>
       <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
+        {serial && <Breadcrumbs label={serial.serial_number} path={`/terminal/${serial.id}`} />}
         {loading && (
           <div style={{ textAlign: 'center', padding: '4rem', color: '#6b7280' }}>Loading…</div>
         )}

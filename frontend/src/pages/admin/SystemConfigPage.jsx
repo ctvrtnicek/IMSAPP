@@ -64,6 +64,15 @@ export default function SystemConfigPage() {
         </select>
       )
     }
+    if (cfg.config_key.startsWith('MOVES_DATE_BASIS_')) {
+      return (
+        <select value={editValue} onChange={e => setEditValue(e.target.value)}
+          style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '5px 8px', fontSize: 13 }}>
+          <option value="arrival">Arrival (received)</option>
+          <option value="departure">Departure (shipped)</option>
+        </select>
+      )
+    }
     if (cfg.config_key === 'AI_ASSISTANT_ROLES') {
       const selected = new Set(editValue.split(',').map(s => s.trim()).filter(Boolean))
       const toggle = (code) => {

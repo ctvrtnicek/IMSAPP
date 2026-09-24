@@ -5,7 +5,7 @@ It is the assistant's primary source for "how do I…" questions. When it differ
 PRD or older test cases, this guide is right.
 
 MAINTENANCE RULE: every change to a user-visible process updates this file in the same
-commit (see CLAUDE.md). Last reviewed: 2026-09-23 (R3 items #17, #16, #9 delivered).
+commit (see CLAUDE.md). Last reviewed: 2026-09-24 (R3 #17, #16, #9, #12 + Inventory Moves).
 
 ---
 
@@ -44,7 +44,7 @@ widest access.
 Dashboard · Inventory · Orders · Distribution · Returns & Repairs · Demand · Supply ·
 Analytics · Warehouse Tasks · Alerts · Admin. Menu items a role has no access to are hidden.
 - **Inventory** tabs: All Terminals, By State, By Location, By Product, In Transit,
-  Accessories, Traceability.
+  Accessories, Traceability, Inventory Moves.
 - **Orders** tabs: Purchase Orders · Sales / Rental / Replacement · Claims.
 - **Returns & Repairs** tabs: Return Orders · Repair Orders (repair-centre users see only
   Repair Orders).
@@ -182,6 +182,22 @@ Shortage, Accessory Reservation At Risk. Severity: Critical / Urgent / Normal. U
 Centre users see and acknowledge only alerts at their own locations. Running the alert
 engine and editing Alert Rules (Admin → Alert Rules) is admin-only.
 (The alerting framework is scheduled for a rebuild in R4.)
+
+## 11a. Inventory Moves report (month-end)
+
+Inventory → **Inventory Moves**. For a chosen month (filters: period, from, to) it lists
+terminals that changed jurisdiction or left / re-entered the company's books, per route
+and product, with **quantity**, **standard value** (product master value — refurb value
+for refurbished stock — in EUR) and **accumulated cost** (costs booked on the terminal up
+to the move, EUR). Click a quantity to see the serials; export per serial to CSV.
+Categories: cross-border moves between company warehouses/FSLs in **different countries**
+(e.g. Oostrum NL → Memphis US; same-country moves are not listed), to customers (out of
+the books), to partners, to repair centres, returns from customers / partners, returns
+from repair centres. Which date a move counts on is set in Admin → System Config:
+MOVES_DATE_BASIS_SALES / _DISTRIBUTION / _REPAIR = arrival (default) or departure;
+returns always count on arrival. The report can be run for any past month — it is
+calculated from terminal history. The Terminal detail page header also shows the
+product's standard value.
 
 ## 12. Claims
 

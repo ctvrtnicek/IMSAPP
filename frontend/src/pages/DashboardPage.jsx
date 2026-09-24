@@ -42,6 +42,7 @@ import ATPConfigPage from './admin/ATPConfigPage.jsx'
 import AllocationPage from './supply/AllocationPage.jsx'
 import SearchResultsPage from './SearchResultsPage.jsx'
 import TraceabilityPage from './inventory/TraceabilityPage.jsx'
+import InventoryMovesPage from './inventory/InventoryMovesPage.jsx'
 
 // ---------------------------------------------------------------------------
 // Role-based visibility helpers
@@ -148,6 +149,7 @@ const INVENTORY_TABS = [
   { id: 'in-transit',  label: 'In Transit' },
   { id: 'accessories', label: 'Accessories' },
   { id: 'traceability', label: 'Traceability' },
+  { id: 'moves',       label: 'Inventory Moves' },
 ]
 
 const ROLE_LABELS = {
@@ -564,6 +566,7 @@ function DashboardPageInner({ auth, setAuth }) {
             {activeInvTab === 'in-transit'  && <InTransitPage    role={role} />}
             {activeInvTab === 'accessories' && <NonSerialisedPage role={role} />}
             {activeInvTab === 'traceability' && <TraceabilityPage role={role} />}
+            {activeInvTab === 'moves'       && <InventoryMovesPage />}
           </div>
         </div>
       )

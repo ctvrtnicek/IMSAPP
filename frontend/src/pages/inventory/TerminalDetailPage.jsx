@@ -160,6 +160,17 @@ export default function TerminalDetailPage() {
                   </InfoCard>
                   <InfoCard label="Supplier">{serial.supplier_name || '—'}</InfoCard>
                   <InfoCard label="Stock Type">{serial.stock_type || '—'}</InfoCard>
+                  <InfoCard label="Standard Value (product)">
+                    {(() => {
+                      // Product master value; refurbished stock uses the refurb value
+                      const refurb = (serial.stock_type || '').toLowerCase().startsWith('refurb') && serial.product_refurb_unit_value != null
+                      const v = refurb ? serial.product_refurb_unit_value : serial.product_unit_value
+                      const cur = (refurb ? serial.product_refurb_unit_currency : serial.product_unit_currency) || 'EUR'
+                      return v != null
+                        ? <>{cur} {parseFloat(v).toFixed(2)}{refurb && <span style={{ color: '#6b7280', fontWeight: 400 }}> (refurb)</span>}</>
+                        : '—'
+                    })()}
+                  </InfoCard>
                   <InfoCard label="Current State">
                     <StateBadge stateName={serial.current_state_name} warehouseType={null} />
                   </InfoCard>

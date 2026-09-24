@@ -72,6 +72,11 @@ def serial_to_out(s: SerialNumber, latest_history: StateHistory = None) -> dict:
         "current_location_code": s.current_location.code if s.current_location else None,
         "current_location_name": s.current_location.name if s.current_location else None,
         "stock_type": s.stock_type,
+        # product master standard value (refurb value for refurbished stock) — shown in the terminal header
+        "product_unit_value": s.product.unit_value if s.product else None,
+        "product_unit_currency": s.product.unit_currency if s.product else None,
+        "product_refurb_unit_value": s.product.refurb_unit_value if s.product else None,
+        "product_refurb_unit_currency": s.product.refurb_unit_currency if s.product else None,
         "security_seal": s.security_seal,
         "key_loaded": s.key_loaded,
         "active": s.active,
@@ -214,6 +219,35 @@ def list_serials(
                 r["pegged_to_order_number"] = order_map.get(r["pegged_to_order_id"])
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# GET /api/inventory/moves  — Inventory Moves report (see inventory_moves.py)
+# ---------------------------------------------------------------------------
+
+@router.get("/moves/filters")
+def inventory_moves_filters(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    from inventory_moves import moves_filters
+    return moves_filters(db, scope)
+
+
+@router.get("/moves")
+def inventory_moves(
+    period: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="Month, YYYY-MM"),
+    from_label: Optional[str] = Query(None, alias="from", description="Location code or ALL_CUSTOMERS / ALL_REPAIRS / ALL_PARTNERS"),
+    to_label: Optional[str] = Query(None, alias="to"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    """Terminals moved in a month, per category / route / product: quantity, standard
+    value (EUR) and accumulated cost (EUR), with the serials behind each figure."""
+    from inventory_moves import moves_report
+    return moves_report(db, scope, period, from_label, to_label)
 
 
 # ---------------------------------------------------------------------------

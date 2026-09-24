@@ -19,16 +19,21 @@ export default function ReturnDetailStandalonePage() {
       .catch(() => { setError(`Return order "${orderNumber}" not found.`); setLoading(false) })
   }, [orderNumber])
 
+  function goBack() {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/')
+  }
+
   return (
-    <AppShell title={`Return Order — ${orderNumber}`} onBack={() => navigate(-1)}>
-      <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
+    <AppShell title={`Return Order — ${orderNumber}`}>
+      <div style={{ padding: 32 }}>
         {loading && <p style={{ color: 'var(--fg-muted)' }}>Loading…</p>}
         {error && <p style={{ color: 'var(--alert)' }}>{error}</p>}
         {orderId && (
           <ReturnDetailPanel
             returnId={orderId}
             role={role}
-            onBack={() => navigate(-1)}
+            onBack={goBack}
           />
         )}
       </div>

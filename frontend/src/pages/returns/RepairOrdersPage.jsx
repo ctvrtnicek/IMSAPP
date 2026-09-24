@@ -289,7 +289,7 @@ export function RepairDetailPanel({ repairId, onBack, role }) {
   if (!order) return null
 
   return (
-    <div>
+    <div className="e2o-detail">
       {/* Back button */}
       <button
         onClick={onBack}

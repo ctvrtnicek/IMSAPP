@@ -25,15 +25,15 @@ export default function OutboundDetailStandalonePage() {
   }
 
   return (
-    <AppShell title={`Order — ${orderNumber}`} onBack={goBack}>
-      <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
+    <AppShell title={`Order — ${orderNumber}`}>
+      <div style={{ padding: 32 }}>
         {loading && <p style={{ color: 'var(--fg-muted)' }}>Loading…</p>}
         {error && <p style={{ color: 'var(--alert)' }}>{error}</p>}
         {orderId && (
           <OutboundDetailPage
             orderId={orderId}
             role={role}
-            onBack={() => navigate(-1)}
+            onBack={goBack}
           />
         )}
       </div>

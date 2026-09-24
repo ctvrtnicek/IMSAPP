@@ -7,7 +7,7 @@ Current PRD: `SPECS/IMS - PRD v3.0 Consolidated_new.docx`. Its R3 detail section
 which is agentic work outside the 17 R3 items). `prd_appendixb.txt` is a truncated
 v2.2 extract (stops at 5.1) — don't use it for detailed specs.
 
-Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17, #16, #9 and #12 closed 2026-09-23.
+Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17, #16, #9 and #12 closed 2026-09-23; #13 closed 2026-09-24 — all R3 items done.
 
 ## Data visibility rule (#14 / #16 / #17) — decided 2026-09-22
 
@@ -51,15 +51,18 @@ IMS").
 
 ## Not implemented
 
-(none — only the #13 walkthrough is left)
-
-## Needs a walkthrough
-
-- **#13 — Page & Size Alignment.** PRD §5.5 scope: open PO/SO/RN/RP/DS/RR/RE detail
-  screens from their list view and from a Terminal Detail hyperlink, confirm
-  identical layout. Do last, as a regression pass.
+(none — R3 complete)
 
 ## Confirmed done (for reference — don't re-investigate these)
+
+**#13 Page & Size Alignment** — closed 2026-09-24 after Jakub's local test. PO/SO/RN/RP/
+DS/RR/RE details render identically from the list (dashboard) and by link (standalone):
+detail root carries `.e2o-detail` (max-width 1400); while one is open the list's section
+title / tab row (`.e2o-list-chrome`) is hidden via `main:has(.e2o-detail)`; standalone
+pages drop the top-bar Back (the detail's own ← Back is the only one) and use the
+dashboard's 32px padding; `main { scrollbar-gutter: stable }` stops the width jumping
+between short and long pages. Measured at 1440×900: header card 1141px wide, content
+top 84px, one Back, in both paths for every type.
 
 **#12 AI Assistant** — closed 2026-09-23 after Jakub's local test. Decisions
 (Jakub, 2026-09-23): passive assistant — reads, interprets, explains, and can

@@ -401,18 +401,18 @@ export default function PODetailPage({ poId, role, onBack }) {
     (role === 'admin' || role === 'supply_planner' || role === 'warehouse_user' || role === 'supplier')
 
   return (
-    <div>
+    <div className="e2o-detail">
       {/* Back button */}
       <button
         onClick={onBack}
-        className="text-blue-600 text-sm mb-5 hover:underline flex items-center gap-1"
+        className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 transition"
       >
         ← Back
       </button>
       <Breadcrumbs label={po.po_number} path={`/po/${po.po_number}`} />
 
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow p-6 mb-5">
+      <div className="bg-white rounded-2xl shadow p-6 mb-4">
         <div className="flex flex-col gap-3">
           <div className="flex items-start justify-between flex-wrap gap-3">
             <div>

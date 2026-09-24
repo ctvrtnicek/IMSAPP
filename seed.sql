@@ -112,7 +112,7 @@ INSERT INTO customer_segments ("id", "segment_code", "segment_name", "priority")
 INSERT INTO customer_segments ("id", "segment_code", "segment_name", "priority") VALUES (2, 'SMB', 'Small & Medium Business', 50) ON CONFLICT DO NOTHING;
 INSERT INTO customer_segments ("id", "segment_code", "segment_name", "priority") VALUES (3, 'PTR', 'Partner', 30) ON CONFLICT DO NOTHING;
 
--- agent_runs (4 rows)
+-- agent_runs (5 rows)
 INSERT INTO agent_runs ("id", "run_id", "agent_name", "triggered_by", "status", "shortages_found", "actions_taken", "hitl_items", "intents_recorded", "intents_executed", "summary_text", "started_at", "completed_at") VALUES (1, '9803b056-2f59-41b2-911e-a352db36c989', 'IMS_InventoryShortage', 'manual:admin', 'completed', 4, 3, 0, 0, 0, 'IMS_InventoryShortage Agent v2.0 — Run 9803b056-2f59-41b2-911e-a352db36c989
 Started: 2026-07-01 18:24 UTC | Triggered by: manual:admin
 ------------------------------------------------------------
@@ -172,6 +172,21 @@ Items requiring human review: 0
 New allocation intents recorded: 0
 Intents executed this run: 0
 Review pending items at: Admin -> Agentic -> Agent Recommendations', '2026-09-23 07:00:00', '2026-09-23 07:00:03.154662') ON CONFLICT DO NOTHING;
+INSERT INTO agent_runs ("id", "run_id", "agent_name", "triggered_by", "status", "shortages_found", "actions_taken", "hitl_items", "intents_recorded", "intents_executed", "summary_text", "started_at", "completed_at") VALUES (5, '15418e7e-8a4e-4851-812f-fafaa4a163f6', 'IMS_InventoryShortage', 'scheduler', 'completed', 4, 0, 0, 0, 0, 'IMS_InventoryShortage Agent v2.0 — Run 15418e7e-8a4e-4851-812f-fafaa4a163f6
+Started: 2026-09-24 13:00 UTC | Triggered by: scheduler
+------------------------------------------------------------
+Safety stock targets evaluated: 5
+Shortages detected: 4
+  [MONITOR] V400M @ FSLUK: FSL United Kingdom is a customer-facing FSL and therefore holds top priority in 
+  [MONITOR] V400M @ Changi: Warehouse location with a gross shortage of 15 units against safety stock min of
+  [MONITOR] V400M @ Memphis: Warehouse location with gross shortage of 15 units vs safety stock min 15. Posit
+  [MONITOR] V400M @ DHLAU: Warehouse location with gross shortage of 10 units vs safety stock min 10. Cover
+
+Actions taken (auto DOs): 0
+Items requiring human review: 0
+New allocation intents recorded: 0
+Intents executed this run: 0
+Review pending items at: Admin -> Agentic -> Agent Recommendations', '2026-09-24 13:00:00', '2026-09-24 13:00:31.604667') ON CONFLICT DO NOTHING;
 
 -- state_valid_location_types (15 rows)
 INSERT INTO state_valid_location_types ("state_id", "location_type_id") VALUES (2, 1) ON CONFLICT DO NOTHING;

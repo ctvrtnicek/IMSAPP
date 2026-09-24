@@ -389,3 +389,13 @@ body { margin: 0; font-weight: var(--fw-regular); }
    Utility overrides — keep Tailwind working alongside
    ========================================================================= */
 .font-graphik { font-family: var(--font-primary) !important; }
+
+/* ── Order detail frame (R3 #13) ─────────────────────────────────
+   Every order detail (SO/RN/RP/DS, PO, Return, Repair) renders the same
+   whether opened from a list (dashboard) or by link (standalone page):
+   same width cap, and the list's section title / tab row is hidden while
+   a detail is open, so the detail starts at the top of the content area. */
+.e2o-detail { max-width: 1400px; }
+main:has(.e2o-detail) .e2o-list-chrome { display: none; }
+/* Reserve the scrollbar's space so content width doesn't jump between short and long pages */
+main { scrollbar-gutter: stable; }

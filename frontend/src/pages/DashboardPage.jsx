@@ -489,7 +489,7 @@ function DashboardPageInner({ auth, setAuth }) {
     if (activeNav === 'sales-orders') {
       return (
         <div className="flex flex-col h-full">
-          <div className="mb-5">
+          <div className="mb-5 e2o-list-chrome">
             <h1 style={{ fontSize: 'var(--fs-h2)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', marginBottom: 16 }}>Orders</h1>
           </div>
           <div className="flex-1">
@@ -502,7 +502,7 @@ function DashboardPageInner({ auth, setAuth }) {
     if (activeNav === 'dist-orders') {
       return (
         <div className="flex flex-col h-full">
-          <h1 style={{ fontSize: 'var(--fs-h2)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', marginBottom: 20 }}>Distribution Orders</h1>
+          <h1 className="e2o-list-chrome" style={{ fontSize: 'var(--fs-h2)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', marginBottom: 20 }}>Distribution Orders</h1>
           <DistributionOrdersPage role={role} />
         </div>
       )
@@ -515,7 +515,7 @@ function DashboardPageInner({ auth, setAuth }) {
       const returnsTab    = canSeeReturns ? activeReturnsTab : 'repair-orders'
       return (
         <div className="flex flex-col h-full">
-          <div className="mb-5">
+          <div className="mb-5 e2o-list-chrome">
             <h1 style={{ fontSize: 'var(--fs-h2)', fontWeight: 'var(--fw-bold)', color: 'var(--fg-1)', marginBottom: 16 }}>Returns &amp; Repairs</h1>
             <SubTabBar
               tabs={returnsTabs}

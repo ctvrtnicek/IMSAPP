@@ -29,7 +29,7 @@ export default function SalesOrdersPage({ role }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div style={{ marginBottom: 20 }}>
+      <div className="e2o-list-chrome" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border-1)' }}>
           {TABS.map((tab) => (
             <button

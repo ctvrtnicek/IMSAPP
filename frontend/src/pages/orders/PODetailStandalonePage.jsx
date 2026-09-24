@@ -25,8 +25,8 @@ export default function PODetailStandalonePage() {
   }
 
   return (
-    <AppShell title={`Purchase Order — ${poNumber}`} onBack={goBack}>
-      <div style={{ padding: '2rem', maxWidth: 1400, width: '100%', margin: '0 auto' }}>
+    <AppShell title={`Purchase Order — ${poNumber}`}>
+      <div style={{ padding: 32 }}>
         {loading && <p style={{ color: 'var(--fg-muted)' }}>Loading…</p>}
         {error && <p style={{ color: 'var(--alert)' }}>{error}</p>}
         {poId && (

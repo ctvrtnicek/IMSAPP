@@ -28,7 +28,12 @@ OUT_PATH = REPO_ROOT / "seed.sql"
 # 2026-09-01: no secrets, just activity notes / alert messages) and are core
 # functionality — Terminal Detail's state history and the Alerts page were
 # silently empty on every deploy because of this. Export them.
-SKIP = {"sqlite_sequence", "agent_logs"}
+SKIP = {"sqlite_sequence", "agent_logs", "ai_conversations", "ai_messages"}  # + AI Assistant chats (per-user, not seed data)
+
+# system_config values that are secrets: exported as NULL. seed.sql is committed to
+# GitHub — a key exported here was leaked and auto-revoked (found 2026-09-24). Render
+# keeps its own values (ON CONFLICT DO NOTHING); set them there in System Config.
+SECRET_CONFIG_KEYS = {"ANTHROPIC_API_KEY", "SMTP_PASSWORD"}
 
 
 def main():
@@ -77,8 +82,11 @@ def main():
         lines.append(f"\n-- {table} ({len(rows)} rows)")
         for row in rows:
             vals = []
-            for v in row:
-                if v is None:
+            secret = table == "system_config" and row["config_key"] in SECRET_CONFIG_KEYS
+            for col, v in zip(cols, row):
+                if secret and col == "current_value":
+                    vals.append("NULL")
+                elif v is None:
                     vals.append("NULL")
                 elif isinstance(v, bytes):
                     vals.append("NULL")
@@ -93,7 +101,12 @@ def main():
             lines.append(f"INSERT INTO {table} ({col_str}) VALUES ({val_str}) ON CONFLICT DO NOTHING;")
             total += 1
 
-    OUT_PATH.write_text("\n".join(lines), encoding="utf-8")
+    out = "\n".join(lines)
+    # Last line of defence: never write an Anthropic key into a committed file
+    if "sk-ant-" in out:
+        raise SystemExit("ABORTED: an Anthropic API key (sk-ant-...) is in the export - "
+                         "seed.sql was NOT written. Find the table/column and exclude it.")
+    OUT_PATH.write_text(out, encoding="utf-8")
 
     print(f"Done — {total} statements written to {OUT_PATH}")
     if blobs_skipped:

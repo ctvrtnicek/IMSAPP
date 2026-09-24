@@ -97,6 +97,13 @@ def update_config(
     return config_to_out(row)
 
 
+@router.get("/meta/ai-models", response_model=List[dict])
+def ai_models(current_user: User = Depends(require_admin)):
+    """R3 #12 — model choices for AI_MODEL (the platform-wide model)."""
+    from ai_config import AI_MODEL_CHOICES
+    return [{"id": m, "label": label} for m, label in AI_MODEL_CHOICES]
+
+
 @router.get("/public/ai-enabled", response_model=dict)
 def get_ai_enabled(db: Session = Depends(get_db)):
     """Public endpoint — returns whether AI assistant is enabled (no auth required for UI toggle)."""

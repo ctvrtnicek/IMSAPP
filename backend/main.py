@@ -35,6 +35,7 @@ from routers import agents as agents_module
 from routers import atp as atp_module
 from routers import traceability as traceability_module
 from routers import admin_db as admin_db_module
+from routers import assistant as assistant_module
 
 # ---------------------------------------------------------------------------
 # Application
@@ -147,6 +148,9 @@ app.include_router(agents_module.router)
 
 # Admin — DB schema/seed diagnostics
 app.include_router(admin_db_module.router)
+
+# R3 #12 — AI Assistant
+app.include_router(assistant_module.router)
 
 # ---------------------------------------------------------------------------
 # Startup

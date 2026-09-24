@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import AssistantButton from './AssistantPanel.jsx'
 import { useNavigate } from 'react-router-dom'
 
 // ---------------------------------------------------------------------------
@@ -150,6 +151,7 @@ export default function AppShell({ children, title, onBack, backLabel = '← Bac
           <span style={{ fontSize: 'var(--fs-body-sm)', opacity: 0.8 }}>{title}</span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)' }}>
+          <AssistantButton />
           <span style={{ fontSize: 'var(--fs-body-sm)', opacity: 0.85 }}>
             {username}{' '}
             <span style={{ opacity: 0.65, fontSize: 'var(--fs-label)' }}>({roleLabel})</span>

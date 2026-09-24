@@ -31,6 +31,18 @@ If asked to "just push" or "ship it" without an explicit local test pass having
 happened, ask first rather than assuming — this reverses the default from
 earlier in the project (push-as-you-go), so don't fall back to old habit.
 
+## AI Assistant knowledge: keep the process guide current
+
+The in-app AI Assistant (R3 #12, `backend/ai_assistant.py`) answers "how do I…"
+questions from `backend/assistant_knowledge/process_guide.md` — a description of how
+the system works **today** (who can do what, in which menu, in which order). It
+overrides the PRD/test-case references in the same folder.
+
+**Any change to a user-visible process updates `process_guide.md` in the same commit**
+(new/changed steps, role rights, statuses, menu paths, automation such as
+auto-drafted orders). Bump its "Last reviewed" line. If a PRD or test-case file is
+revised, regenerate the matching `reference_*.md` there too.
+
 ## Data sync: keeping Render's Postgres in sync with local dev data
 
 The seed data on Render (master data, transactions, system config — anything

@@ -7,7 +7,7 @@ Current PRD: `SPECS/IMS - PRD v3.0 Consolidated_new.docx`. Its R3 detail section
 which is agentic work outside the 17 R3 items). `prd_appendixb.txt` is a truncated
 v2.2 extract (stops at 5.1) — don't use it for detailed specs.
 
-Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17, #16 and #9 closed 2026-09-23.
+Agreed finishing order: #17 → #16 → #9 → #12 → #13. #17, #16, #9 and #12 closed 2026-09-23.
 
 ## Data visibility rule (#14 / #16 / #17) — decided 2026-09-22
 
@@ -30,7 +30,7 @@ visibility never shrinks:
 | Work orders | location in L |
 | Accessories (non-serialised) | location in L (no history exists) |
 | Analytics | **narrower**: only stock currently at L and orders involving L |
-| Alerts | unchanged — rebuilt in R4 together with the agents |
+| Alerts | location in L (server-side since 2026-09-23); full rebuild in R4 with the agents |
 
 Writes (warehouse state updates, recharge WOs) are limited to terminals physically
 at L.
@@ -51,11 +51,7 @@ IMS").
 
 ## Not implemented
 
-- **#12 — AI Assistant (proactive, alert-aware).** DB tables exist
-  (`ai_conversations`, `ai_messages`) but no backend endpoint and no chat UI.
-  PRD §5.17: chat bubble in top nav, slide-in panel, streaming, alert list/ack
-  from chat, context (page + role), `AI_ASSISTANT_ENABLED` / `ANTHROPIC_API_KEY`
-  in System Config.
+(none — only the #13 walkthrough is left)
 
 ## Needs a walkthrough
 
@@ -64,6 +60,24 @@ IMS").
   identical layout. Do last, as a regression pass.
 
 ## Confirmed done (for reference — don't re-investigate these)
+
+**#12 AI Assistant** — closed 2026-09-23 after Jakub's local test. Decisions
+(Jakub, 2026-09-23): passive assistant — reads, interprets, explains, and can
+acknowledge alerts directly (runs with the user's own rights/visibility; alert
+actions extend when alerts are rebuilt in R4); per-role on/off
+(`AI_ASSISTANT_ROLES`, default all internal roles, not repair centre/supplier);
+one platform-wide model (`AI_MODEL`, default Claude Opus 5 — also used by the
+document processor and shortage agent now); answers "how do I…" from
+`backend/assistant_knowledge/process_guide.md` (current behaviour, kept in sync per
+CLAUDE.md rule) with PRD v1.3/v3 + test cases as searchable references.
+Code: `backend/ai_assistant.py`, `routers/assistant.py`, `ai_config.py`,
+`migrate_v28.py`, `frontend/src/components/AssistantPanel.jsx`. Streaming SSE chat,
+7 tools, opening "needs attention" card computed without a model call, history in
+ai_conversations/ai_messages. `anthropic` added to requirements.txt (was missing —
+AI features could not run on Render).
+Keys must be workspace-scoped (an org-level key gets 400 "not scoped to a workspace").
+Top-bar button "✦ Ask AI". Alerts API now requires login + location scoping
+(separate commit).
 
 **#9 BOM Process** — closed 2026-09-23 after Jakub's local test. Decisions
 (Jakub, 2026-09-23): consume components at shipping (physical deduction only when

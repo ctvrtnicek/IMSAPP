@@ -9,4 +9,7 @@ api.interceptors.request.use(config => {
 
 export const listSystemConfig = () => api.get('/system-config')
 export const updateSystemConfig = (key, value) => api.put(`/system-config/${key}`, { current_value: String(value) })
+// R3 #12 — choices for the platform AI model and the roles list for AI_ASSISTANT_ROLES
+export const listAiModels = () => api.get('/system-config/meta/ai-models')
+export const listRoles = () => api.get('/users/meta/roles')
 export const runAgentNow = (agentName) => api.post(`/agents/${agentName}/run-now`)

@@ -4,6 +4,7 @@ import { getAlertSummary } from '../api/alerts.js'
 import { getAgentStatus } from '../api/agents.js'
 import { LocationProvider, useLocationFilter } from '../context/LocationContext.jsx'
 import { clearBreadcrumbs } from '../components/Breadcrumbs.jsx'
+import AssistantButton from '../components/AssistantPanel.jsx'
 import LocationsPage from './master-data/LocationsPage.jsx'
 import SuppliersPage from './master-data/SuppliersPage.jsx'
 import ProductsPage from './master-data/ProductsPage.jsx'
@@ -652,6 +653,8 @@ function DashboardPageInner({ auth, setAuth }) {
               }} />
             </button>
           )}
+          {/* R3 #12 AI Assistant (shown only if enabled for the user's role) */}
+          <AssistantButton />
           {/* Alert bell */}
           <button
             onClick={() => handleNavChange('alerts')}

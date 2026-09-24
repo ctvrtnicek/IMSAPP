@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listSystemConfig, updateSystemConfig } from '../../api/system_config.js'
+import { listAiModels, listRoles, listSystemConfig, updateSystemConfig } from '../../api/system_config.js'
 
 const TYPE_LABELS = { string: 'Text', integer: 'Integer', boolean: 'Boolean', decimal: 'Decimal' }
 
@@ -12,6 +12,9 @@ export default function SystemConfigPage() {
   const [saving, setSaving]     = useState(false)
   const [saveMsg, setSaveMsg]   = useState(null)
   const [confirmKey, setConfirmKey] = useState(null)
+  // R3 #12: AI_MODEL is a dropdown, AI_ASSISTANT_ROLES a role checklist (stored as text)
+  const [aiModels, setAiModels] = useState([])
+  const [roles, setRoles]         = useState([])
 
   async function load() {
     setLoading(true); setError(null)
@@ -23,7 +26,11 @@ export default function SystemConfigPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    listAiModels().then(r => setAiModels(r.data)).catch(() => {})
+    listRoles().then(r => setRoles(r.data)).catch(() => {})
+  }, [])
 
   function startEdit(cfg) {
     setEditKey(cfg.config_key)
@@ -48,6 +55,33 @@ export default function SystemConfigPage() {
   }
 
   function renderInput(cfg) {
+    if (cfg.config_key === 'AI_MODEL') {
+      return (
+        <select value={editValue} onChange={e => setEditValue(e.target.value)}
+          style={{ border: '1px solid #d1d5db', borderRadius: 6, padding: '5px 8px', fontSize: 13 }}>
+          {!aiModels.some(m => m.id === editValue) && editValue && <option value={editValue}>{editValue}</option>}
+          {aiModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      )
+    }
+    if (cfg.config_key === 'AI_ASSISTANT_ROLES') {
+      const selected = new Set(editValue.split(',').map(s => s.trim()).filter(Boolean))
+      const toggle = (code) => {
+        const next = new Set(selected)
+        next.has(code) ? next.delete(code) : next.add(code)
+        setEditValue(roles.map(r => r.code).filter(c => next.has(c)).join(','))
+      }
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(150px, 1fr))', gap: '4px 12px' }}>
+          {roles.map(r => (
+            <label key={r.code} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <input type="checkbox" checked={selected.has(r.code)} onChange={() => toggle(r.code)} />
+              {r.label}
+            </label>
+          ))}
+        </div>
+      )
+    }
     if (cfg.data_type === 'boolean') {
       return (
         <select value={editValue} onChange={e => setEditValue(e.target.value)}
@@ -70,6 +104,15 @@ export default function SystemConfigPage() {
   function formatDisplayValue(cfg) {
     if (['ANTHROPIC_API_KEY', 'SMTP_PASSWORD'].includes(cfg.config_key)) {
       return <span style={{ color: '#9ca3af' }}>{cfg.current_value ? '●●●●●●●●' : '(not set)'}</span>
+    }
+    if (cfg.config_key === 'AI_MODEL') {
+      const m = aiModels.find(x => x.id === cfg.current_value)
+      return <span style={{ color: '#1f2937' }}>{m ? m.label : cfg.current_value}</span>
+    }
+    if (cfg.config_key === 'AI_ASSISTANT_ROLES') {
+      const codes = (cfg.current_value || '').split(',').map(s => s.trim()).filter(Boolean)
+      const labels = codes.map(c => roles.find(r => r.code === c)?.label || c)
+      return <span style={{ color: '#1f2937' }}>{labels.length ? labels.join(', ') : <span style={{ color: '#9ca3af' }}>No roles</span>}</span>
     }
     if (cfg.data_type === 'boolean') {
       const on = cfg.current_value === '1' || cfg.current_value === 'true'
@@ -97,7 +140,7 @@ export default function SystemConfigPage() {
       {error   && <p style={{ color: '#dc2626', fontSize: 13 }}>{error}</p>}
 
       {!loading && !error && (
-        <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+        <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflowX: 'auto' }}>
           <div style={{ padding: '8px 14px', background: '#f8fafc', borderBottom: '1px solid #e5e7eb', fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             All Configuration Keys
           </div>
@@ -123,10 +166,11 @@ export default function SystemConfigPage() {
                         {TYPE_LABELS[cfg.data_type] || cfg.data_type}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 12px' }}>
+                    <td style={{ padding: '10px 12px', maxWidth: 320, overflowWrap: 'anywhere' }}>
                       {isEditing ? renderInput(cfg) : formatDisplayValue(cfg)}
                     </td>
-                    <td style={{ padding: '10px 12px', color: '#9ca3af', fontSize: 12 }}>{cfg.default_value ?? '—'}</td>
+                    {/* long comma lists (e.g. AI_ASSISTANT_ROLES) must wrap, or they push Actions off screen */}
+                    <td style={{ padding: '10px 12px', color: '#9ca3af', fontSize: 12, maxWidth: 200, overflowWrap: 'anywhere' }}>{cfg.default_value ?? '—'}</td>
                     <td style={{ padding: '10px 12px', color: '#9ca3af', fontSize: 11 }}>{cfg.updated_at?.slice(0, 16) || '—'}</td>
                     <td style={{ padding: '10px 12px' }}>
                       {isEditing ? (

@@ -149,8 +149,15 @@ def claude_api_extract(raw_text: str, api_key: str) -> ExtractionResult:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
 
+        from ai_config import first_text, get_ai_model
+        from database import SessionLocal
+        _db = SessionLocal()
+        try:
+            model = get_ai_model(_db)   # platform-wide model (System Config AI_MODEL)
+        finally:
+            _db.close()
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=model,
             max_tokens=4096,
             messages=[{
                 "role": "user",
@@ -167,7 +174,7 @@ Response (JSON array only, no markdown):"""
         )
 
         import json
-        text = response.content[0].text.strip()
+        text = first_text(response).strip()
         # Strip markdown code blocks if present
         if text.startswith('```'):
             text = re.sub(r'^```\w*\n?', '', text)

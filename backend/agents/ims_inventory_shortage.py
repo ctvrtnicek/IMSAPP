@@ -516,13 +516,14 @@ def claude_api_decide(db: Session, run_id: str, prompt: str, api_key: str) -> li
         "never recommend moving pegged inventory, and record clear reasoning for every decision. "
         "Always return valid JSON only — no markdown fences, no explanation outside the JSON array."
     )
+    from ai_config import first_text, get_ai_model
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=get_ai_model(db),   # platform-wide model (System Config AI_MODEL)
         max_tokens=4096,
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )
-    raw = message.content[0].text.strip()
+    raw = first_text(message).strip()
     # Strip markdown fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]

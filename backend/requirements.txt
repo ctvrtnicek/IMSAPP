@@ -19,3 +19,6 @@ sqlparse
 
 apscheduler
 pytz
+
+# Claude API (AI assistant, document processor, shortage agent)
+anthropic>=0.113,<1

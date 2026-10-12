@@ -135,6 +135,37 @@ def _sync_pg_sequences():
     return {"synced": synced, "errors": errors}
 
 
+def _sync_order_numbering():
+    """Move each order_numbering counter past the highest order number in use.
+
+    seed.sql never overwrites an existing order_numbering row (ON CONFLICT DO
+    NOTHING), so on a long-lived database the counter can lag behind seeded
+    orders; the next generated number then collides with an existing one.
+    """
+    import re
+    from sqlalchemy import inspect
+
+    with engine.connect() as conn:
+        insp = inspect(conn)
+        used = []  # every order_number in any table that has one
+        for table in insp.get_table_names():
+            if any(c["name"] == "order_number" for c in insp.get_columns(table)):
+                used += [r[0] for r in conn.execute(text(f'SELECT order_number FROM "{table}"')) if r[0]]
+        rows = conn.execute(text("SELECT id, prefix, current_sequence FROM order_numbering")).fetchall()
+
+    bumped = {}
+    with engine.begin() as conn:
+        for row_id, prefix, current in rows:
+            pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+            highest = max((int(m.group(1)) for n in used if (m := pattern.match(n))), default=0)
+            if highest > (current or 0):
+                conn.execute(text("UPDATE order_numbering SET current_sequence = :n WHERE id = :id"),
+                             {"n": highest, "id": row_id})
+                bumped[prefix] = [current, highest]
+    print(f"[init_database] order numbering bumped={bumped}")
+    return bumped
+
+
 def init_database():
     if not _init_lock.acquire(blocking=False):
         print("[init_database] already running, skipping overlapping call")
@@ -175,6 +206,7 @@ def init_database():
 
         if dialect == "postgresql":
             summary["sequences"] = _sync_pg_sequences()
+            summary["order_numbering"] = _sync_order_numbering()
 
         global last_init_summary
         last_init_summary = summary

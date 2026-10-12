@@ -46,6 +46,39 @@ function StatusBadge({ status }) {
   )
 }
 
+// ENH-003 — per-line ATP / BOM badges (same colours as the order detail page)
+const ATP_STATUS_STYLES = {
+  ATP_OK:      { backgroundColor: '#16a34a', color: '#fff' },
+  ATP_PARTIAL: { backgroundColor: '#ea580c', color: '#fff' },
+  ATP_NONE:    { backgroundColor: '#dc2626', color: '#fff' },
+}
+
+const BOM_STATUS_STYLES = {
+  COMPLETE: { backgroundColor: '#16a34a', color: '#fff', label: 'Components complete' },
+  PARTIAL:  { backgroundColor: '#ea580c', color: '#fff', label: 'Components in transfer' },
+  PENDING:  { backgroundColor: '#dc2626', color: '#fff', label: 'Components missing' },
+}
+
+function ATPStatusBadge({ status }) {
+  if (!status) return <span className="text-gray-300">—</span>
+  const style = ATP_STATUS_STYLES[status] || { backgroundColor: '#6b7280', color: '#fff' }
+  return (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap" style={style}>
+      {status.replace('ATP_', 'ATP: ')}
+    </span>
+  )
+}
+
+function BomCell({ line }) {
+  const st = line.is_bom && BOM_STATUS_STYLES[line.bom_assembly_status]
+  if (!st) return <span className="text-gray-300">—</span>
+  return (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap" style={st}>
+      {st.label}
+    </span>
+  )
+}
+
 const EMPTY_LINE = { product_id: '', quantity: '' }
 
 // allowedTypes: if provided, only show/create orders of these types
@@ -62,6 +95,11 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
   const [typeFilter, setTypeFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [search, setSearch] = useState('')
+  // ENH-004 — line-level filters; an order matches if one of its lines matches all of them
+  const [productFilter, setProductFilter] = useState('All')
+  const [minQty, setMinQty] = useState('')
+  const [atpFilter, setAtpFilter] = useState('All')
+  const [bomFilter, setBomFilter] = useState('All')
 
   // Paging state
   const [pageSize, setPageSize] = useState(50)
@@ -205,7 +243,17 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
   }
 
   // Reset page when filters change
-  useEffect(() => { setCurrentPage(0) }, [typeFilter, statusFilter, search])
+  useEffect(() => { setCurrentPage(0) }, [typeFilter, statusFilter, search, productFilter, minQty, atpFilter, bomFilter])
+
+  const productOptions = [...new Set(orders.flatMap((o) => (o.line_summary || []).map((l) => l.product_code)).filter(Boolean))].sort()
+  const lineFiltersActive = productFilter !== 'All' || minQty !== '' || atpFilter !== 'All' || bomFilter !== 'All'
+  const lineMatches = (l) => {
+    if (productFilter !== 'All' && l.product_code !== productFilter) return false
+    if (minQty !== '' && !(l.quantity >= Number(minQty))) return false
+    if (atpFilter === 'None' ? l.atp_status : atpFilter !== 'All' && l.atp_status !== atpFilter) return false
+    if (bomFilter === 'NOT_BOM' ? l.is_bom : bomFilter !== 'All' && !(l.is_bom && l.bom_assembly_status === bomFilter)) return false
+    return true
+  }
 
   // Client-side filtering
   const filtered = orders.filter((o) => {
@@ -213,6 +261,7 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
     if (typeFilter !== 'All' && o.order_type !== typeFilter) return false
     if (statusFilter !== 'All' && o.status !== statusFilter) return false
     if (search && !o.order_number.toLowerCase().includes(search.toLowerCase())) return false
+    if (lineFiltersActive && !(o.line_summary || []).some(lineMatches)) return false
     return true
   })
 
@@ -263,6 +312,33 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
           onChange={(e) => setSearch(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none w-52"
         />
+        <select value={productFilter} onChange={(e) => setProductFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none" title="Product">
+          <option value="All">All products</option>
+          {productOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <input
+          type="number"
+          min="1"
+          placeholder="Min qty"
+          value={minQty}
+          onChange={(e) => setMinQty(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none w-24"
+          title="Minimum line quantity"
+        />
+        <select value={atpFilter} onChange={(e) => setAtpFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none" title="ATP status">
+          <option value="All">All ATP statuses</option>
+          <option value="ATP_OK">ATP: OK</option>
+          <option value="ATP_PARTIAL">ATP: PARTIAL</option>
+          <option value="ATP_NONE">ATP: NONE</option>
+          <option value="None">Not run</option>
+        </select>
+        <select value={bomFilter} onChange={(e) => setBomFilter(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none" title="BOM">
+          <option value="All">All BOM</option>
+          <option value="COMPLETE">Components complete</option>
+          <option value="PARTIAL">Components in transfer</option>
+          <option value="PENDING">Components missing</option>
+          <option value="NOT_BOM">Not a BOM</option>
+        </select>
         <button
           onClick={loadOrders}
           className="px-3 py-2 rounded-lg text-sm border border-gray-300 hover:bg-gray-50 transition"
@@ -281,7 +357,7 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
           <p className="text-gray-400 text-sm">No outbound orders found.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow overflow-hidden">
+        <div className="bg-white rounded-2xl shadow overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 text-xs uppercase border-b border-gray-100">
@@ -289,6 +365,10 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
                 <th className="px-4 py-3 font-semibold">Type</th>
                 <th className="px-4 py-3 font-semibold">Customer / Destination</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Product</th>
+                <th className="px-4 py-3 font-semibold text-right">Qty</th>
+                <th className="px-4 py-3 font-semibold">ATP Status</th>
+                <th className="px-4 py-3 font-semibold">BOM</th>
                 <th className="px-4 py-3 font-semibold">ATP Ship Date</th>
                 <th className="px-4 py-3 font-semibold">ATP Delivery</th>
                 <th className="px-4 py-3 font-semibold">Created</th>
@@ -299,6 +379,7 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
               {paged.map((o) => {
                 const customerDest = o.customer_name || o.destination_location_code || '—'
                 const createdDate = o.created_at ? o.created_at.slice(0, 10) : '—'
+                const lines = o.line_summary || []
                 return (
                   <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
                     <td className="px-4 py-3 font-mono font-semibold text-gray-800">{o.order_number}</td>
@@ -308,6 +389,19 @@ export default function OutboundListPage({ role, onViewOrder, allowedTypes }) {
                     <td className="px-4 py-3 text-gray-600">{customerDest}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={o.status} />
+                    </td>
+                    {/* ENH-003: one stacked entry per order line */}
+                    <td className="px-4 py-3 text-gray-800 font-medium">
+                      {lines.map((l, i) => <div key={i} className="leading-6">{l.product_code || '—'}</div>)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-right">
+                      {lines.map((l, i) => <div key={i} className="leading-6">{l.quantity}</div>)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lines.map((l, i) => <div key={i} className="leading-6"><ATPStatusBadge status={l.atp_status} /></div>)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lines.map((l, i) => <div key={i} className="leading-6"><BomCell line={l} /></div>)}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{o.atp_ship_date || '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{o.atp_delivery_date || '—'}</td>

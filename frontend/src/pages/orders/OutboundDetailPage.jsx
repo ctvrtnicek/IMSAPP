@@ -759,11 +759,21 @@ export default function OutboundDetailPage({ orderId, onBack, role }) {
               </thead>
               <tbody>
                 {(order.kit_terminals || []).map((k) => (
-                  <tr key={`kit-${k.product_code}-${k.location_code}`} className="border-b border-gray-50">
+                  <tr key={`kit-${k.product_code}-${k.location_code}-${k.status}`} className="border-b border-gray-50">
                     <td className="px-3 py-2 font-medium text-gray-800">{k.product_code}</td>
                     <td className="px-3 py-2 text-gray-600">{k.location_code}</td>
                     <td className="px-3 py-2 text-gray-600">{k.quantity}</td>
-                    <td className="px-3 py-2 text-gray-600">{k.status}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {k.status}
+                      {k.incoming?.length > 0 && (
+                        <span className="text-gray-500">
+                          {' — '}
+                          {k.incoming.map(([ds, q], i) => (
+                            <span key={ds}>{i > 0 && ', '}{q} on <a href={`/order/${ds}`} className="underline font-mono">{ds}</a></span>
+                          ))}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {(order.accessory_reservations || []).filter((r) => r.status !== 'Released').map((r) => (

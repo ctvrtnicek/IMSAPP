@@ -5,7 +5,7 @@ It is the assistant's primary source for "how do I…" questions. When it differ
 PRD or older test cases, this guide is right.
 
 MAINTENANCE RULE: every change to a user-visible process updates this file in the same
-commit (see CLAUDE.md). Last reviewed: 2026-09-24 (R3 #17, #16, #9, #12 + Inventory Moves).
+commit (see CLAUDE.md). Last reviewed: 2026-10-12 (CR-002: Components & Reservations for non-BOM lines).
 
 ---
 
@@ -132,7 +132,11 @@ Warehouse users move terminals between warehouse states in **Warehouse Tasks**.
   lead time.
 - The order's **Components & Reservations** section and the **BOM Component Supply** panel
   show stock per location (on hand, staging, reserved incl. "this order", free, short) and
-  incoming POs for the fulfilling warehouse.
+  incoming POs for the fulfilling warehouse. Both appear only for BOM/kit lines.
+- For a plain (non-BOM) terminal line, Components & Reservations appears only when an open
+  Distribution order is bringing that product to the line's fulfilling location: it lists the
+  terminals pegged to the order and the incoming DS. ATP does not auto-draft a DS for plain
+  products — a Supply Planner creates it manually.
 - Components are deducted from stock when the order **ships** (physically leaves).
 
 ## 8. Returns and repairs

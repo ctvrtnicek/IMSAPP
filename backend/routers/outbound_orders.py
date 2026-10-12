@@ -177,6 +177,45 @@ def _kit_terminals_out(order: OutboundOrder) -> list:
             for (p, l), n in sorted(counts.items(), key=lambda x: (x[0][0] or "", x[0][1] or ""))]
 
 
+def _single_terminals_out(order: OutboundOrder) -> list:
+    """Plain (non-BOM) serialised lines whose product is coming in on an open Distribution
+    order to the line's fulfilling location: the order's pegged terminals per location,
+    plus those incoming DS. Lines with nothing incoming are left out (CR-002)."""
+    db = object_session(order)
+    if db is None:
+        return []
+    from collections import Counter
+    rows = []
+    for line in order.lines:
+        p = line.product
+        dest = line.fulfilling_location_id or order.fulfilling_location_id
+        if not p or not p.serialised or p.is_bom or not dest:
+            continue
+        incoming = [
+            (ds.order_number, dl.quantity)
+            for ds in db.query(OutboundOrder).filter(
+                OutboundOrder.order_type == "Distribution",
+                OutboundOrder.destination_location_id == dest,
+                OutboundOrder.id != order.id,
+                OutboundOrder.status.notin_(("Delivered", "Cancelled", "Closed")),
+            )
+            for dl in ds.lines if dl.product_id == p.id
+        ]
+        if not incoming:
+            continue
+        counts = Counter(
+            sn.current_location.code if sn.current_location else None
+            for sn in db.query(SerialNumber).filter(
+                SerialNumber.pegged_to_order_id == order.id, SerialNumber.product_id == p.id)
+        )
+        rows += [{"product_code": p.code, "location_code": loc, "quantity": n, "status": "Pegged terminals",
+                  "incoming": []} for loc, n in sorted(counts.items(), key=lambda x: x[0] or "")]
+        dest_loc = db.query(Location).get(dest)
+        rows.append({"product_code": p.code, "location_code": dest_loc.code if dest_loc else None,
+                     "quantity": sum(q for _, q in incoming), "status": "Incoming", "incoming": incoming})
+    return rows
+
+
 def _reservations_out(order: OutboundOrder) -> list:
     db = object_session(order)
     if db is None:
@@ -242,13 +281,24 @@ def order_to_out(order: OutboundOrder, include_lines: bool = True) -> dict:
         "created_at": str(order.created_at) if order.created_at else None,
         "lines": [],
         "allocated_serials": [],
+        # ENH-003 — compact per-line info for the order list
+        "line_summary": [
+            {
+                "product_code": l.product.code if l.product else None,
+                "quantity": l.quantity,
+                "atp_status": l.atp_status,
+                "is_bom": bool(l.product.is_bom) if l.product else False,
+                "bom_assembly_status": l.bom_assembly_status,
+            }
+            for l in sorted(order.lines, key=lambda l: l.line_number or 0)
+        ],
     }
     if include_lines:
         result["lines"] = [line_to_out(line) for line in order.lines]
         result["allocated_serials"] = [serial_to_out(oos) for oos in order.serials]
         db = object_session(order)
         result["accessory_reservations"] = _reservations_out(order)
-        result["kit_terminals"] = _kit_terminals_out(order)
+        result["kit_terminals"] = _kit_terminals_out(order) + _single_terminals_out(order)
         result["reservation_warnings"] = accessory_stock.reservation_warnings(db, order.id) if db else []
         result["atp_has_run"] = any(l.atp_status for l in order.lines)
         result["atp_rerun_blocked_reason"] = atp_rerun_blocker(db, order) if db else None

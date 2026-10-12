@@ -100,6 +100,37 @@ def _run_statements(conn, statements, label, batch_size=200):
     return ok, errors
 
 
+def _sync_pg_sequences():
+    """Move every SERIAL sequence past the highest seeded id.
+
+    seed.sql inserts rows with explicit ids, which never advances the sequences,
+    so without this the next app-created row (e.g. a new order) collides with a
+    seeded id and the insert fails with a duplicate-key error.
+    """
+    from sqlalchemy import text
+
+    find = text("""
+        SELECT c.table_name, c.column_name,
+               pg_get_serial_sequence(quote_ident(c.table_name), c.column_name) AS seq
+        FROM information_schema.columns c
+        WHERE c.table_schema = 'public' AND c.column_default LIKE 'nextval(%'
+    """)
+    synced, errors = 0, []
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        for table, column, seq in conn.execute(find).fetchall():
+            if not seq:
+                continue
+            try:
+                conn.execute(text(
+                    f'SELECT setval(:seq, COALESCE((SELECT MAX("{column}") FROM "{table}"), 0) + 1, false)'
+                ), {"seq": seq})
+                synced += 1
+            except Exception as e:
+                errors.append({"table": table, "error": str(e)[:200]})
+    print(f"[init_database] sequences synced={synced} errors={len(errors)}")
+    return {"synced": synced, "errors": errors}
+
+
 def init_database():
     if not _init_lock.acquire(blocking=False):
         print("[init_database] already running, skipping overlapping call")
@@ -137,6 +168,9 @@ def init_database():
                 ok, errors = _run_statements(conn, stmts, "seed")
             summary["seed"] = {"ok": ok, "errors": errors}
             print(f"Seed data loaded. OK={ok}, errors={len(errors)}")
+
+        if dialect == "postgresql":
+            summary["sequences"] = _sync_pg_sequences()
 
         global last_init_summary
         last_init_summary = summary

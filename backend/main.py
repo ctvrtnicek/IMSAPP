@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import engine, init_database
+from database import SessionLocal, engine, init_database
 from models import Base  # noqa: F401 — ensures all models are registered
 from routers import auth as auth_router
 from routers import locations as locations_module
@@ -210,6 +211,29 @@ def _schedule_shortage_agent(db_session=None):
                 print(f"  Failed to schedule {job_id}: {e}")
 
 
+def _reset_admin_password_from_env():
+    """Recovery for a forgotten admin password: when ADMIN_RESET_PASSWORD is set
+    (e.g. in Render → Environment), set the `admin` user's password to it on startup.
+    Remove the variable once logged in — otherwise every restart resets it again."""
+    new_password = os.environ.get("ADMIN_RESET_PASSWORD")
+    if not new_password:
+        return
+    from auth import get_password_hash
+    from models import User
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.username == "admin").first()
+        if not admin:
+            print("ADMIN_RESET_PASSWORD set, but no 'admin' user exists.")
+            return
+        admin.password_hash = get_password_hash(new_password)
+        admin.active = 1
+        db.commit()
+        print("Admin password reset from ADMIN_RESET_PASSWORD — remove the variable now.")
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 def on_startup():
     # schema.sql / schema_postgres.sql is the source of truth for table structure
@@ -230,6 +254,8 @@ def on_startup():
         print("Database initialised.")
     # Safety net for any ORM-only tables not (yet) covered by the schema file.
     Base.metadata.create_all(bind=engine)
+
+    _reset_admin_password_from_env()
 
     _scheduler.start()
     _schedule_shortage_agent()

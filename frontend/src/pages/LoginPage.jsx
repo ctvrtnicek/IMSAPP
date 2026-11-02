@@ -2,14 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth.js'
 
-const TEST_CREDENTIALS = [
-  { username: 'admin',     password: 'admin123',     role: 'Admin' },
-  { username: 'planner',   password: 'planner123',   role: 'Supply Planner' },
-  { username: 'warehouse', password: 'warehouse123', role: 'Warehouse User' },
-  { username: 'repair',    password: 'repair123',    role: 'Repair Centre' },
-  { username: 'supplier',  password: 'supplier123',  role: 'Supplier' },
-]
-
 export default function LoginPage({ setAuth }) {
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
@@ -98,18 +90,12 @@ export default function LoginPage({ setAuth }) {
             </button>
           </form>
 
-          {/* Test credentials */}
-          <div style={{ marginTop: 'var(--sp-6)', background: 'var(--bg-2)', border: '1px solid var(--border-1)', borderRadius: 'var(--radius-sm)', padding: 'var(--sp-4)' }}>
-            <p className="e2o-eyebrow" style={{ marginBottom: 8 }}>Test Credentials</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {TEST_CREDENTIALS.map(c => (
-                <div key={c.username} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)' }}>{c.username} / {c.password}</span>
-                  <span style={{ color: 'var(--fg-muted)' }}>{c.role}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Ownership notice */}
+          <p style={{ marginTop: 'var(--sp-6)', textAlign: 'center', fontSize: 'var(--fs-body-sm)', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+            © {new Date().getFullYear()} Terminal Stock App is owned by Wise Chain Consulting
+            {' '}(<a href="https://www.wise-chain-consult.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--fg-2)', textDecoration: 'underline' }}>www.wise-chain-consult.com</a>).
+            <br />All rights reserved.
+          </p>
         </div>
       </div>
     </div>
